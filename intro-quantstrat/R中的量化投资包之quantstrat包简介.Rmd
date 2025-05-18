@@ -1,0 +1,994 @@
+---
+title: "R中的量化投资包之quantstrat包简介"
+author:
+  - MatrixSpk
+documentclass: ctexart
+keywords:
+  - 中文
+  - R Markdown
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+# 引言
+
+quantstart包是 R 中专注于构建量化投资框架的 R 包，它提供了策略构造、策略回测、策略结果可视化等多种功能供用户使用。
+
+# quantstrat包简介
+
+## quantstrat包的安装
+
+## quantstrat包主要函数介绍
+
+# quantstrat回测策略的步骤
+
+# quantstrat包实例
+
+## bbbands 实例
+
+```{r bbands, echo=TRUE,width="60%"}
+library(xts)
+AAPL <- read.csv("AAPL.csv")
+AAPL <- xts(AAPL[,-1],order.by=as.Date(AAPL[,1]))
+TSLA <- read.csv("TSLA.csv")
+TSLA <- xts(TSLA[,-1],order.by=as.Date(TSLA[,1]))
+BABA <- read.csv("BABA.csv")
+BABA <- xts(BABA[,-1],order.by=as.Date(BABA[,1]))
+
+require(quantstrat)
+suppressWarnings(rm("order_book.bbands",pos=.strategy))
+suppressWarnings(rm("account.bbands","portfolio.bbands",pos=.blotter))
+suppressWarnings(rm("account.st","portfolio.st","stock.str","stratBBands","startDate","initEq",'start_t','end_t'))
+
+stock.str='AAPL'
+
+# we'll pass these 
+SD = 2 # how many standard deviations, traditionally 2
+N = 20 # how many periods for the moving average, traditionally 20
+
+currency('USD')
+stock(stock.str,currency='USD',multiplier=1)
+
+startDate='2020-01-01'
+initEq=1000000
+
+portfolio.st='bbands'
+account.st='bbands'
+
+initPortf(portfolio.st, symbols=stock.str)
+initAcct(account.st,portfolios='bbands')
+initOrders(portfolio=portfolio.st)
+addPosLimit(portfolio.st, stock.str, startDate, 200, 2 ) #set max pos
+
+
+# set up parameters
+maType='SMA'
+n = 20
+sdp = 2
+
+strat.st<-portfolio.st
+# define the strategy
+strategy(strat.st, store=TRUE)
+
+#one indicator
+add.indicator(strategy = strat.st, 
+              name = "BBands", 
+              arguments = list(HLC = quote(HLC(mktdata)), 
+                               n=n, 
+                               maType=maType, 
+                               sd=sdp 
+                               ), 
+              label='BBands')
+#add signals:
+add.signal(strategy = strat.st,
+           name="sigCrossover",
+           arguments = list(columns=c("Close","up"),
+                            relationship="gt"),
+           label="Cl.gt.UpperBand")
+
+add.signal(strategy = strat.st,
+           name="sigCrossover",
+           arguments = list(columns=c("Close","dn"),
+                            relationship="lt"),
+           label="Cl.lt.LowerBand")
+
+add.signal(strategy = strat.st,name="sigCrossover",
+           arguments = list(columns=c("High","Low","mavg"),
+                            relationship="op"),
+           label="Cross.Mid")
+
+# lets add some rules
+add.rule(strategy = strat.st,name='ruleSignal',
+         arguments = list(sigcol="Cl.gt.UpperBand",
+                          sigval=TRUE,
+                          orderqty=-100, 
+                          ordertype='market',
+                          orderside=NULL,
+                          threshold=NULL,
+                          osFUN=osMaxPos),
+         type='enter')
+
+add.rule(strategy = strat.st,name='ruleSignal',
+         arguments = list(sigcol="Cl.lt.LowerBand",
+                          sigval=TRUE,
+                          orderqty= 100, 
+                          ordertype='market',
+                          orderside=NULL,
+                          threshold=NULL,
+                          osFUN=osMaxPos),
+         type='enter')
+
+add.rule(strategy = strat.st,name='ruleSignal',
+         arguments = list(sigcol="Cross.Mid",
+                          sigval=TRUE,
+                          orderqty= 'all',
+                          ordertype='market',
+                          orderside=NULL,
+                          threshold=NULL,
+                          osFUN=osMaxPos),
+         label='exitMid',
+         type='exit')
+
+#alternately, to exit at the opposite band, the rules would be...
+#add.rule(strategy = strat.st,name='ruleSignal', arguments = list(data=quote(mktdata),sigcol="Lo.gt.UpperBand",sigval=TRUE, orderqty= 'all', ordertype='market', orderside=NULL, threshold=NULL),type='exit')
+#add.rule(strategy = strat.st,name='ruleSignal', arguments = list(data=quote(mktdata),sigcol="Hi.lt.LowerBand",sigval=TRUE, orderqty= 'all', ordertype='market', orderside=NULL, threshold=NULL),type='exit')
+
+
+start_t<-Sys.time()
+
+out<-try(applyStrategy(strategy='bbands',
+                       portfolios='bbands',parameters=list(sd=SD,n=N)))
+
+end_t<-Sys.time()
+print("strat execution time:")
+print(end_t-start_t)
+
+start_t<-Sys.time()
+updatePortf(Portfolio='bbands',Dates=paste('::',as.Date(Sys.time()),sep=''))
+end_t<-Sys.time()
+print("updatePortf execution time:")
+print(end_t-start_t)
+
+chart.Posn(Portfolio='bbands',Symbol=stock.str)
+plot(add_BBands(on=1,sd=SD,n=N))
+```
+
+
+
+## bbandsWFA实例
+
+
+```{r bbandsWFA, echo=TRUE,width="60%"}
+library(quantstrat)
+stock.st = c("AAPL")
+currency("USD")
+stock(stock.st, currency="USD",multiplier=1)
+Sys.setenv(TZ="UTC") 
+initDate = '2020-01-01'
+startDate = '2020-01-01'
+endDate = '2024-12-31'    
+initEq=1e6
+tradeSize = initEq/10
+
+# getSymbols(stock.st,from=startDate,to=endDate,index.class="POSIXct",adjust=TRUE,src='yahoo')
+
+strat.st <- "bbands"
+suppressWarnings(rm.strat(strat.st))
+strategy(strat.st, store=TRUE)
+
+add.indicator(strat.st, name = "BBands",
+              arguments = list(HLC = quote(HLC(mktdata)), maType='SMA'), label='BBands')
+
+add.signal(strat.st, name="sigCrossover",
+           arguments=list(columns=c("Close","up"),relationship="gt"),
+           label="Cl.gt.UpperBand")
+
+add.signal(strat.st, name="sigCrossover",
+           arguments=list(columns=c("Close","dn"),relationship="lt"),
+           label="Cl.lt.LowerBand")
+
+add.signal(strat.st, name="sigCrossover",
+           arguments=list(columns=c("High","Low","mavg"),relationship="op"),
+           label="Cross.Mid")
+
+add.rule(strategy = strat.st, name='ruleSignal',
+         arguments=list(sigcol="Cl.gt.UpperBand",sigval=TRUE, orderqty=-100,
+                        ordertype='market', orderside=NULL, threshold=NULL),
+         type='enter', label = "Enter.Short")
+
+add.rule(strategy = strat.st, name='ruleSignal',
+         arguments=list(sigcol="Cl.lt.LowerBand",sigval=TRUE, orderqty=100,
+                        ordertype='market', orderside=NULL, threshold=NULL),
+         type='enter', label = "Enter.Long")
+
+add.rule(strategy = strat.st, name='ruleSignal',
+         arguments=list(sigcol="Cross.Mid",sigval=TRUE, orderqty= 'all',
+                        ordertype='market', orderside=NULL, threshold=NULL),
+         type='exit', label = "Exit.All")
+
+add.distribution(strat.st,
+                 paramset.label = 'BBOPT',
+                 component.type = 'indicator',
+                 component.label = 'BBands',
+                 variable = list(n = seq(10,30,by=10)),     # 2 steps total
+                 label = 'n'
+)
+
+add.distribution(strat.st,
+                 paramset.label = 'BBOPT',
+                 component.type = 'indicator',
+                 component.label = 'BBands',
+                 variable = list(sd = seq(1,3,by=1)),    # 2 steps total
+                 label = 'sd'
+)
+
+suppressWarnings(rm.strat("opt"))
+initPortf(name="opt", stock.st, initDate=initDate)
+initAcct(name="opt", portfolios="opt",
+         initDate=initDate, initEq=initEq)
+initOrders(portfolio="opt", initDate=initDate)
+
+# These will also be used after running WFA, so 
+# define once here:
+yrsTrain <- 3     
+yrsTest <- 1
+
+results <- walk.forward(
+  strategy.st=strat.st,
+  paramset.label='BBOPT',
+  portfolio.st="opt",
+  account.st="opt",
+  k.training=yrsTrain,
+  period='years',
+  k.testing=yrsTest,
+  nsamples=0,
+  obj.args = list(x=quote(tradeStats.list$Gross.Profits/abs(tradeStats.list$Gross.Losses))), # max Profit Factor
+  audit.prefix='wfa',
+  anchored=FALSE,
+  verbose=TRUE,
+  savewf=TRUE
+)
+```
+
+
+
+## bee 实例
+
+```{r bee}
+#!/usr/bin/Rscript --vanilla
+#
+# Bumblebee trading system
+# copyright (c) 2009-2012, Algorithm Alpha, LLC
+# Licensed GPL-2
+#
+##### PLACE DEMO DATES HERE #################
+
+startDate="2020-01-01"
+
+############################# DEFINE VARIABLES ##############################
+
+sym           = 'AAPL'
+port          = 'bug'
+acct          = 'colony'
+initEq        = 100000
+fast          = 10
+slow          = 30
+sd            = 0.5
+
+############################# GET DATA ######################################
+
+suppressMessages(require(quantstrat))
+#getSymbols(sym, from=startDate, index.class=c("POSIXt","POSIXct"))
+
+############################# INITIALIZE ####################################
+
+currency('USD')
+stock(sym ,currency='USD', multiplier=1)
+initPortf(port, sym)
+initAcct(acct, port, initEq=initEq)
+initOrders(port)
+bee = strategy(port)
+
+############################# MAX POSITION LOGIC ############################
+
+addPosLimit(
+            portfolio=port,
+            symbol=sym, 
+            timestamp=startDate,  
+            maxpos=100)
+
+
+############################# INDICATORS ####################################
+
+bee <- add.indicator( 
+                     strategy  = bee, 
+                     name      = 'BBands', 
+                     arguments = list(HLC=quote(HLC(mktdata)), 
+                                      n=slow, 
+                                      sd=sd))
+
+bee <- add.indicator(
+                     strategy  = bee, 
+                     name      = 'SMA', 
+                     arguments = list(x=quote(Cl(mktdata)), 
+                                      n=fast),
+                     label     = 'fast' )
+
+############################# SIGNALS #######################################
+
+bee <- add.signal(
+                  strategy  = bee,
+                  name      = 'sigCrossover',
+                  arguments = list(columns=c('fast','dn'), 
+                                   relationship='lt'),
+                  label     = 'fast.lt.dn')
+
+bee <- add.signal(
+                  strategy  = bee,
+                  name      = 'sigCrossover',
+                  arguments = list(columns=c('fast','up'),
+                                   relationship='gt'),
+                  label     = 'fast.gt.up')
+
+############################# RULES #########################################
+
+bee <- add.rule(
+                strategy  = bee,
+                name      = 'ruleSignal',
+                arguments = list(sigcol    = 'fast.gt.up',
+                                 sigval    = TRUE,
+                                 orderqty  = 100,
+                                 ordertype = 'market',
+                                 orderside = 'long',
+                                 osFUN     = 'osMaxPos'),
+
+                type      = 'enter',
+                label     = 'EnterLONG')
+
+bee <- add.rule(
+                strategy  = bee,
+                name      = 'ruleSignal',
+                arguments = list(sigcol    = 'fast.lt.dn',
+                                 sigval    = TRUE,
+                                 orderqty  = 'all',
+                                 ordertype = 'market',
+                                 orderside = 'long'),
+                type      = 'exit',
+                label     = 'ExitLONG')
+
+bee <- add.rule(
+                strategy  = bee,
+                name      = 'ruleSignal',
+                arguments = list(sigcol     = 'fast.lt.dn',
+                                  sigval    = TRUE,
+                                  orderqty  =  -100,
+                                  ordertype = 'market',
+                                  orderside = 'short',
+                                  osFUN     = 'osMaxPos'),
+                type      = 'enter',
+                label     = 'EnterSHORT')
+
+bee <- add.rule(
+                strategy  = bee,
+                name      = 'ruleSignal',
+                arguments = list(sigcol     = 'fast.gt.up',
+                                 sigval     = TRUE,
+                                 orderqty   = 'all',
+                                 ordertype  = 'market',
+                                 orderside  = 'short'),
+                type      = 'exit',
+                label     = 'ExitSHORT')
+
+############################# APPLY STRATEGY ################################
+
+applyStrategy(bee, port, prefer='Open', verbose=FALSE)
+
+############################# UPDATE ########################################
+
+updatePortf(port, sym, Date=paste('::',as.Date(Sys.time()),sep=''))
+updateAcct(acct)
+
+########################### USEFUL CONTAINERS #############################
+
+stratStats   = tradeStats(port)
+stratReturns = PortfReturns(acct)
+
+############################# EXAMPLE STATS #################################
+
+cat('Profit Factor for bumblebee is: ', stratStats$Profit.Factor, '\n')
+
+suppressMessages(require(PerformanceAnalytics))
+
+cat('Sortino Ratio for bumblebee is: ', SortinoRatio(stratReturns), '\n')
+
+```
+
+
+##
+
+```{r}
+# demo script for testing purposes
+
+Sys.setenv(TZ = "GMT")
+require(blotter)
+require(testthat)
+
+port = "testBreak"
+acct = "testBreak"
+symbol = c("IBM")
+
+data(IBM)
+
+startDate = first(index(IBM))
+endDate   = last(index(IBM))
+
+lines = "date,shrs,price,symbol
+2007-01-10,100,98.0,IBM
+2007-01-16,-200,99.5,IBM
+2007-01-17,150,99.45,IBM
+2007-01-18,-50,99.0,IBM"
+con       = textConnection(lines)
+tt.trades = read.csv(con, as.is = TRUE)
+
+tt.trades[,"date"] = make.time.unique(as.POSIXct(tt.trades[,"date"]))
+
+currency("USD")
+stock(symbol,"USD")
+
+initPortf(port,
+          symbol,
+          initDate = startDate)
+initAcct(port,
+         portfolios = c(port),
+         initDate   = startDate,
+         initEq=10^6)
+
+for(i in 1:nrow(tt.trades)){
+  addTxn(port,Symbol = tt.trades[i,"symbol"],
+         TxnDate     = tt.trades[i,"date"],
+         TxnPrice    = tt.trades[i,"price"],
+         TxnQty      = tt.trades[i,"shrs"])
+}
+
+updatePortf(port)
+updateAcct(acct)
+updateEndEq(acct)
+```
+
+
+## faber
+
+```{r faber}
+# This is a very simple trend following strategy for testing the results of:
+# Faber, Mebane T., "A Quantitative Approach to Tactical Asset Allocation." 
+# Journal of Risk Management (Spring 2007).
+# The article proposes a very simple quantitative market-timing model.  They 
+# test the model in sample on the US stock market since 1900 before testing
+# it out-of-sample in twenty other markets.
+
+# The article discusses a 200-day simple moving average, which is proposed
+# in Jeremy Seigel's book "Stocks for the Long Run" for timing the DJIA.  He 
+# concludes that a simple market timing strategy improves the absolute and
+# risk adjusted returns over a buy-and-hold strategy.  After all transaction
+# costs are included, the timing strategy falls short on the absolute return,
+# but still provides a better risk-adjusted return.  Siegel also tests timing on  
+# the Nasdaq composite since 1972 and finds better absolute and risk adjusted
+# returns.
+
+# The article implements a simpler version of the 200-day SMA, opting for a
+# 10-month SMA.  Monthly data is more easily available for long periods of time,
+# and the lower granularity should translate to lower transaction costs.  
+
+# The rules of the system are relatively simple:
+# - Buy when monthly price > 10-month SMA
+# - Sell and move to cash when monthly price < 10-month SMA
+
+# 1. All entry and exit prices are on the day of the signal at the close.
+# 2. All data series are total return series including dividends, updated monthly. 
+#    For the purposes of this demo, we only use price returns.
+# 3. Cash returns are estimated with 90-day commercial paper.  Margin rates for
+#    leveraged models are estimated with the broker call rate.  Again, for the
+#    purposes of this demo, we ignore interest and leverage.
+# 4. Taxes, commissions, and slippage are excluded.
+
+# This simple strategy is different from well-known trend-following systems in
+# three respects.  First, there's no shorting.  Positions are converted to cash on
+# a 'sell' signal, rather than taking a short position. Second, the entire position
+# is put on at trade inception.  No assumptions are made about increasing position
+# size as the trend progresses.  Third, there are no stops.  If the trend reverts
+# quickly, this system will wait for a sell signal before selling the position.
+
+# Data
+# Instead of using total returns data, this demo uses monthly data for the SP500
+# downloaded from Yahoo Finance.  We'll use about 10 years of data, starting at 
+# the beginning of 1998.
+
+# Load required libraries
+require(quantstrat)
+
+#correct for TZ issues if they crop up
+oldtz<-Sys.getenv('TZ')
+if(oldtz=='') {
+	Sys.setenv(TZ="GMT")
+}
+# Try to clean up in case the demo was run previously
+suppressWarnings(rm("account.faber","portfolio.faber",pos=.blotter))
+suppressWarnings(rm("ltaccount", "ltportfolio", "ClosePrice", "CurrentDate", "equity", 
+            "GSPC", "stratFaber", "startDate", "initEq", "Posn", "UnitSize", "verbose"))
+suppressWarnings(rm("order_book.faber",pos=.strategy))
+
+# Set initial values
+startDate='2020-01-01'
+initEq=100000
+
+# Set up instruments with FinancialInstruments package
+currency("USD")
+symbols = c("AAPL", "BABA", "TSLA")
+for(symbol in symbols){ # establish tradable instruments
+    stock(symbol, currency="USD",multiplier=1)
+}
+
+# Load data with quantmod
+#getSymbols(symbols, src='yahoo', index.class=c("POSIXt","POSIXct"), from='1998-01-01')
+### Download monthly data instead?
+### GSPC=to.monthly(GSPC, indexAt='endof')
+getSymbols(symbols, src='yahoo', index.class=c("POSIXt","POSIXct"), from='1999-01-01')
+for(symbol in symbols) {
+    x<-get(symbol)
+    x<-to.monthly(x,indexAt='lastof',drop.time=TRUE)
+    indexFormat(x)<-'%Y-%m-%d'
+    colnames(x)<-gsub("x",symbol,colnames(x))
+    assign(symbol,x)
+}
+
+# Initialize portfolio and account
+initPortf('faber', symbols=symbols)
+initAcct('faber', portfolios='faber', initEq=initEq)
+initOrders(portfolio='faber')
+
+print("setup completed")
+
+# Initialize a strategy object
+strategy("faber", store=TRUE)
+
+# Add an indicator
+add.indicator('faber', name = "SMA", arguments = list(x = quote(Cl(mktdata)), n=10), label="SMA10")
+
+# There are two signals:
+# The first is when monthly price crosses over the 10-month SMA
+add.signal('faber',name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="gte"),label="Cl.gt.SMA")
+# The second is when the monthly price crosses under the 10-month SMA
+add.signal('faber',name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="lt"),label="Cl.lt.SMA")
+
+# There are two rules:
+# The first is to buy when the price crosses above the SMA
+add.rule('faber', name='ruleSignal', arguments = list(sigcol="Cl.gt.SMA", sigval=TRUE, orderqty=500, ordertype='market', orderside='long', pricemethod='market',TxnFees=-5), type='enter', path.dep=TRUE)
+# The second is to sell when the price crosses below the SMA
+add.rule('faber', name='ruleSignal', arguments = list(sigcol="Cl.lt.SMA", sigval=TRUE, orderqty='all', ordertype='market', orderside='long', pricemethod='market',TxnFees=-5), type='exit', path.dep=TRUE)
+
+# Process the indicators and generate trades
+start_t<-Sys.time()
+out<-try(applyStrategy(strategy='faber' , portfolios='faber'))
+end_t<-Sys.time()
+print("Strategy Loop:")
+print(end_t-start_t)
+
+# look at the order book
+print(getOrderBook('faber'))
+
+start_t<-Sys.time()
+updatePortf(Portfolio='faber',Dates=paste('::',as.Date(Sys.time()),sep=''))
+updateAcct('faber')
+updateEndEq('faber')
+end_t<-Sys.time()
+print("trade blotter portfolio update:")
+print(end_t-start_t)
+
+# hack for new quantmod graphics, remove later
+themelist<-chart_theme()
+themelist$col$up.col<-'lightgreen'
+themelist$col$dn.col<-'pink'
+
+dev.new()
+layout(mat=matrix(1:(length(symbols)+1),ncol=2))
+for(symbol in symbols){
+    chart.Posn(Portfolio='faber',Symbol=symbol,theme=themelist,TA="add_SMA(n=10,col='darkgreen')")
+}
+
+ret1 <- PortfReturns('faber')
+ret1$total <- rowSums(ret1)
+
+print(ret1)
+
+if("package:PerformanceAnalytics" %in% search() || require("PerformanceAnalytics",quietly=TRUE)){
+	# getSymbols("SPY", src='yahoo', index.class=c("POSIXt","POSIXct"),from='1999-01-01')
+	AAPL<-to.monthly(AAPL, indexAt='lastof')  
+	AAPL.ret<-Return.calculate(AAPL$AAPL.Close)
+	dev.new()
+	charts.PerformanceSummary(cbind(ret1$total,AAPL.ret), geometric=FALSE, wealth.index=TRUE)
+}
+
+faber.stats<-tradeStats('faber')[,c('Net.Trading.PL','Max.Drawdown','Num.Trades','Profit.Factor','Std.Dev.Trade.PL','Largest.Winner','Largest.Loser','Max.Equity','Min.Equity')]
+print(faber.stats)
+
+Sys.setenv(TZ=oldtz)
+###############################################################################
+# R (http://r-project.org/) Quantitative Strategy Model Framework
+#
+# Copyright (c) 2009-2012
+# Peter Carl, Dirk Eddelbuettel, Brian G. Peterson,
+# Jeffrey Ryan, Joshua Ulrich, and Garrett See
+#
+# This library is distributed under the terms of the GNU Public License (GPL)
+# for full details see the file COPYING
+#
+# $Id$
+#
+###############################################################################
+
+```
+
+
+## faberMC
+
+本例子中需要帮忙下载数据。
+
+```{r faberMC}
+# This is a very simple trend following strategy for testing the results of:
+# Faber, Mebane T., "A Quantitative Approach to Tactical Asset Allocation." 
+# Journal of Risk Management (Spring 2007). 
+# The article proposes a very simple quantitative market-timing model.  They 
+# test the model in sample on the US stock market since 1900 before testing
+# it out-of-sample in twenty other markets.
+
+# The article discusses a 200-day simple moving average, which is proposed
+# in Jeremy Seigel's book "Stocks for the Long Run" for timing the DJIA.  He 
+# concludes that a simple market timing strategy improves the absolute and
+# risk adjusted returns over a buy-and-hold strategy.  After all transaction
+# costs are included, the timing strategy falls short on the absolute return,
+# but still provides a better risk-adjusted return.  Siegel also tests timing on  
+# the Nasdaq composite since 1972 and finds better absolute and risk adjusted
+# returns.
+
+# The article implements a simpler version of the 200-day SMA, opting for a
+# 10-month SMA.  Monthly data is more easily available for long periods of time,
+# and the lower granularity should translate to lower transaction costs.  
+
+# The rules of the system are relatively simple:
+# - Buy when monthly price > 10-month SMA
+# - Sell and move to cash when monthly price < 10-month SMA
+
+# 1. All entry and exit prices are on the day of the signal at the close.
+# 2. All data series are total return series including dividends, updated monthly. 
+#    For the purposes of this demo, we only use price returns.
+# 3. Cash returns are estimated with 90-day commercial paper.  Margin rates for
+#    leveraged models are estimated with the broker call rate.  Again, for the
+#    purposes of this demo, we ignore interest and leverage.
+# 4. Taxes, commissions, and slippage are excluded.
+
+# This simple strategy is different from well-known trend-following systems in
+# three respects.  First, there's no shorting.  Positions are converted to cash on
+# a 'sell' signal, rather than taking a short position. Second, the entire position
+# is put on at trade inception.  No assumptions are made about increasing position
+# size as the trend progresses.  Third, there are no stops.  If the trend reverts
+# quickly, this system will wait for a sell signal before selling the position.
+
+# Data
+# Instead of using total returns data, this demo uses monthly data for the SP500
+# downloaded from Yahoo Finance.  We'll use about 10 years of data, starting at 
+# the beginning of 1998.
+
+# Load required libraries
+require(quantstrat)
+
+# Try to clean up in case the demo was run previously
+suppressWarnings(rm("account.faber","account.faberMC","portfolio.faber","portfolio.combMC", 
+                        "portfolio.GDAXI", "portfolio.GSPC", "portfolio.N225",pos=.blotter))
+suppressWarnings(rm("ltaccount","ltportfolio","ClosePrice","CurrentDate","equity","stratFaber","startDate","initEq","Posn","UnitSize","verbose"))
+suppressWarnings(rm("order_book.faber","order_book.combMC", "order_book.GDAXI", "order_book.GSPC", "order_book.N225", pos=.strategy))
+
+# Set initial values
+startDate='2020-01-01'
+initEq=100000
+
+# Set up instruments with FinancialInstruments package
+symbols = c("^GSPC", "^N225", "^GDAXI")
+
+currency("USD")
+currency("JPY")
+currency("EUR")
+
+#get the currencies
+USDJPY<-getPrice(to.monthly(getSymbols("JPY=X",auto.assign=FALSE),indexAt='lastof',drop.time=TRUE))
+EURUSD<-getPrice(to.monthly(getSymbols("EURUSD=X",auto.assign=FALSE),indexAt='lastof',drop.time=TRUE))
+colnames(USDJPY)<-"USDJPY"
+colnames(EURUSD)<-"EURUSD"
+
+getSymbols(symbols,from=startDate)
+#takes out the carat
+symbols = c("GSPC", "N225", "GDAXI")
+
+stock(symbols[1], currency="USD",multiplier=1)
+stock(symbols[2], currency="JPY",multiplier=1)
+stock(symbols[3], currency="EUR",multiplier=1)
+# to do this truly correctly, we'd use the futures contracts, which are tradable
+
+for(symbol in symbols) {
+    x<-get(symbol)
+    x<-to.monthly(x,indexAt='lastof',drop.time=TRUE)
+    indexFormat(x)<-'%Y-%m-%d'
+    colnames(x)<-gsub("x",symbol,colnames(x))
+    assign(symbol,x)
+	initPortf(symbol, symbols=symbol, currency=getInstrument(symbol)$currency)
+	initOrders(portfolio=symbol)
+}
+
+
+initAcct('faberMC', portfolios=symbols, currency="USD")
+
+# Initialize portfolio and account
+
+print("setup completed")
+
+# Initialize a strategy object
+stratFaber <- strategy("faber")
+
+# Add an indicator
+stratFaber <- add.indicator(strategy = stratFaber, name = "SMA", arguments = list(x = quote(Cl(mktdata)), n=10), label="SMA10")
+
+# There are two signals:
+# The first is when monthly price crosses over the 10-month SMA
+stratFaber <- add.signal(stratFaber,name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="gte"),label="Cl.gt.SMA")
+# The second is when the monthly price crosses under the 10-month SMA
+stratFaber <- add.signal(stratFaber,name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="lt"),label="Cl.lt.SMA")
+
+# There are two rules:
+# The first is to buy when the price crosses above the SMA
+stratFaber <- add.rule(stratFaber, name='ruleSignal', arguments = list(sigcol="Cl.gt.SMA", sigval=TRUE, orderqty=1000, ordertype='market', orderside='long', pricemethod='market'), type='enter', path.dep=TRUE)
+# The second is to sell when the price crosses below the SMA
+stratFaber <- add.rule(stratFaber, name='ruleSignal', arguments = list(sigcol="Cl.lt.SMA", sigval=TRUE, orderqty='all', ordertype='market', orderside='long', pricemethod='market'), type='exit', path.dep=TRUE)
+
+# Process the indicators and generate trades
+start_t<-Sys.time()
+out<-try(applyStrategy(strategy=stratFaber , portfolios=symbols))
+end_t<-Sys.time()
+print("Strategy Loop:")
+print(end_t-start_t)
+
+# look at the order book
+#print(getOrderBook('faber'))
+
+start_t<-Sys.time()
+for(symbol in symbols) {
+	updatePortf(Portfolio=symbol,Dates=paste('::',as.Date(Sys.time()),sep=''))
+}
+end_t<-Sys.time()
+print("trade blotter portfolio update:")
+print(end_t-start_t)
+
+#and a combined portfolio
+initPortf('combMC', symbols=symbols, currency="USD")
+initOrders(portfolio= 'combMC')
+comb.out<-applyStrategy(strategy=stratFaber , portfolios='combMC')
+updatePortf(Portfolio='combMC',Dates=paste('::',as.Date(Sys.time()),sep=''))
+
+# hack for new quantmod graphics, remove later
+themelist<-chart_theme()
+themelist$col$up.col<-'lightgreen'
+themelist$col$dn.col<-'pink'
+for(symbol in symbols){
+    dev.new()
+    chart.Posn(Portfolio=symbol,Symbol=symbol,theme=themelist)
+    plot(add_SMA(n=10,col='darkgreen', on=1))
+}
+
+
+###############################################################################
+# R (http://r-project.org/) Quantitative Strategy Model Framework
+#
+# Copyright (c) 2009-2012
+# Peter Carl, Dirk Eddelbuettel, Brian G. Peterson, 
+# Jeffrey Ryan, Joshua Ulrich, and Garrett See
+#
+# This library is distributed under the terms of the GNU Public License (GPL)
+# for full details see the file COPYING
+#
+# $Id: faber.R 371 2010-08-12 20:18:09Z braverock $
+#
+###############################################################################
+
+```
+
+## faber rebal
+
+```{r}
+# This is a very simple trend following strategy for testing the results of:
+# Faber, Mebane T., "A Quantitative Approach to Tactical Asset Allocation." 
+# Journal of Risk Management (Spring 2007).
+# The article proposes a very simple quantitative market-timing model.  They 
+# test the model in sample on the US stock market since 1900 before testing
+# it out-of-sample in twenty other markets.
+
+# The article discusses a 200-day simple moving average, which is proposed
+# in Jeremy Seigel's book "Stocks for the Long Run" for timing the DJIA.  He 
+# concludes that a simple market timing strategy improves the absolute and
+# risk adjusted returns over a buy-and-hold strategy.  After all transaction
+# costs are included, the timing strategy falls short on the absolute return,
+# but still provides a better risk-adjusted return.  Siegel also tests timing on  
+# the Nasdaq composite since 1972 and finds better absolute and risk adjusted
+# returns.
+
+# The article implements a simpler version of the 200-day SMA, opting for a
+# 10-month SMA.  Monthly data is more easily available for long periods of time,
+# and the lower granularity should translate to lower transaction costs.  
+
+# The rules of the system are relatively simple:
+# - Buy when monthly price > 10-month SMA
+# - Sell and move to cash when monthly price < 10-month SMA
+
+# 1. All entry and exit prices are on the day of the signal at the close.
+# 2. All data series are total return series including dividends, updated monthly. 
+#    For the purposes of this demo, we only use price returns.
+# 3. Cash returns are estimated with 90-day commercial paper.  Margin rates for
+#    leveraged models are estimated with the broker call rate.  Again, for the
+#    purposes of this demo, we ignore interest and leverage.
+# 4. Taxes, commissions, and slippage are excluded.
+
+# This simple strategy is different from well-known trend-following systems in
+# three respects.  First, there's no shorting.  Positions are converted to cash on
+# a 'sell' signal, rather than taking a short position. Second, the entire position
+# is put on at trade inception.  No assumptions are made about increasing position
+# size as the trend progresses.  Third, there are no stops.  If the trend reverts
+# quickly, this system will wait for a sell signal before selling the position.
+
+# Data
+# Instead of using total returns data, this demo uses monthly data for the SP500
+# downloaded from Yahoo Finance.  We'll use about 10 years of data, starting at 
+# the beginning of 1998.
+
+# Load required libraries
+require(quantstrat)
+
+#correct for TZ issues if they crop up
+oldtz <- Sys.getenv('TZ')
+if(oldtz=='') {
+  Sys.setenv(TZ="UTC")
+}
+
+# Try to clean up in case the demo was run previously
+suppressWarnings(rm("account.faber","portfolio.faber",pos=.blotter))
+suppressWarnings(rm("ltaccount", "ltportfolio", "ClosePrice", "CurrentDate", "equity", 
+            "GSPC", "stratFaber", "startDate", "initEq", "Posn", "UnitSize", "verbose"))
+suppressWarnings(rm("order_book.faber",pos=.strategy))
+
+# Set initial values
+startDate='1997-12-31'
+initEq=100000
+
+# Set up instruments with FinancialInstruments package
+currency("USD")
+symbols = c("XLF", "XLP", "XLE", "XLY", "XLV", "XLI", "XLB", "XLK", "XLU")
+for(symbol in symbols){ # establish tradable instruments
+    stock(symbol, currency="USD",multiplier=1)
+}
+
+# Load data with quantmod
+#getSymbols(symbols, src='yahoo', index.class=c("POSIXt","POSIXct"), from='1998-01-01')
+### Download monthly data instead?
+### GSPC=to.monthly(GSPC, indexAt='endof')
+getSymbols(symbols, src='yahoo', index.class=c("POSIXt","POSIXct"), from='1999-01-01')
+for(symbol in symbols) {
+    x<-get(symbol)
+    x<-to.monthly(x,indexAt='lastof',drop.time=TRUE)
+    indexFormat(x)<-'%Y-%m-%d'
+    colnames(x)<-gsub("x",symbol,colnames(x))
+    assign(symbol,x)
+}
+
+# Initialize portfolio and account
+initPortf('faber', symbols=symbols)
+initAcct('faber', portfolios='faber', initEq=100000)
+initOrders(portfolio='faber')
+
+# set initial position limits
+posval<-initEq/length(symbols)
+for(symbol in symbols){
+    pos<-round((posval/first(getPrice(get(symbol)))[,1]),-2)
+    addPosLimit('faber', symbol, startDate, maxpos=pos, minpos=-pos)
+}
+print("setup completed")
+
+# Initialize a strategy object
+strategy("faber", store=TRUE)
+
+# Add an indicator
+add.indicator('faber', name = "SMA", arguments = list(x = quote(Cl(mktdata)), n=10), label="SMA10")
+
+# There are two signals:
+# The first is when monthly price crosses over the 10-month SMA
+add.signal('faber',name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="gte"),label="Cl.gt.SMA")
+# The second is when the monthly price crosses under the 10-month SMA
+add.signal('faber',name="sigCrossover",arguments = list(columns=c("Close","SMA10"),relationship="lt"),label="Cl.lt.SMA")
+
+# There are two rules:
+# The first is to buy when the price crosses above the SMA
+add.rule('faber', name='ruleSignal', arguments = list(sigcol="Cl.gt.SMA", sigval=TRUE, orderqty=100000, osFUN='osMaxPos', ordertype='market', orderside='long', pricemethod='market',TxnFees=-5), type='enter', path.dep=TRUE)
+# The second is to sell when the price crosses below the SMA
+add.rule('faber', name='ruleSignal', arguments = list(sigcol="Cl.lt.SMA", sigval=TRUE, orderqty='all', ordertype='market', orderside='long', pricemethod='market',TxnFees=-5), type='exit', path.dep=TRUE)
+
+# add quaterly rebalancing
+add.rule('faber', 'rulePctEquity',
+        arguments=list(rebalance_on='quarters',
+                trade.percent=1/length(symbols),
+                refprice=quote(last(getPrice(mktdata)[paste('::',as.character(curIndex),sep='')][,1])),
+                digits=0
+        ),
+        type='rebalance',
+        label='rebalance'
+)
+
+# Process the strategy and generate trades
+start_t<-Sys.time()
+out<-applyStrategy.rebalancing(strategy='faber' , portfolios='faber')
+end_t<-Sys.time()
+print("Strategy Loop:")
+print(end_t-start_t)
+
+Sys.setenv(TZ=oldtz)
+
+# look at the order book
+#print(getOrderBook('faber'))
+
+start_t<-Sys.time()
+updatePortf(Portfolio='faber',Dates=paste('::',as.Date(Sys.time()),sep=''))
+updateAcct('faber')
+end_t<-Sys.time()
+print("trade blotter portfolio update:")
+print(end_t-start_t)
+
+# hack for new quantmod graphics, remove later
+themelist<-chart_theme()
+themelist$col$up.col<-'lightgreen'
+themelist$col$dn.col<-'pink'
+
+dev.new()
+layout(mat=matrix(1:(length(symbols)+1),ncol=2))
+for(symbol in symbols){
+    chart.Posn(Portfolio='faber',Symbol=symbol,theme=themelist,TA="add_SMA(n=10,col='darkgreen')")
+}
+
+ret1 <- PortfReturns('faber')
+ret1$total <- rowSums(ret1)
+
+print(ret1)
+
+if("package:PerformanceAnalytics" %in% search() || require("PerformanceAnalytics",quietly=TRUE)){
+  getSymbols("SPY", src='yahoo', index.class=c("POSIXt","POSIXct"), from='1999-01-01')
+  SPY<-to.monthly(SPY, indexAt='lastof')
+  SPY.ret <- Return.calculate(SPY$SPY.Close)
+  dev.new()
+  charts.PerformanceSummary(cbind(ret1$total,SPY.ret), geometric=FALSE, wealth.index=TRUE)
+}
+
+faber.stats<-tradeStats('faber')[,c('Net.Trading.PL','Max.Drawdown','Num.Trades','Profit.Factor','Std.Dev.Trade.PL','Largest.Winner','Largest.Loser','Max.Equity','Min.Equity')]
+faber.stats
+
+###############################################################################
+# R (http://r-project.org/) Quantitative Strategy Model Framework
+#
+# Copyright (c) 2009-2012
+# Peter Carl, Dirk Eddelbuettel, Brian G. Peterson,
+# Jeffrey Ryan, Joshua Ulrich, and Garrett See
+#
+# This library is distributed under the terms of the GNU Public License (GPL)
+# for full details see the file COPYING
+#
+# $Id$
+#
+###############################################################################
+
+
+```

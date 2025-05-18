@@ -1,0 +1,18 @@
+---
+title: "金融数据可视化系列之R中的ggplot包介绍"
+author:
+  - MatirxSpk
+documentclass: ctexart
+keywords:
+  - R 
+  - 金融
+  - 数据可视化
+  - 画图
+  - ggplot
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+

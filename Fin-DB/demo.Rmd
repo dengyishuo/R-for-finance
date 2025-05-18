@@ -1,0 +1,117 @@
+---
+title: "TSLA 投资报告"
+author:
+  - Matrix
+documentclass: ctexart
+keywords:
+  - TSLA
+  - Investment Report
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+数据准备
+
+```{R}
+# 加载必要库
+library(quantmod)    # 金融数据获取与分析
+library(ggplot2)     # 高级可视化
+library(TTR)         # 技术指标计算
+library(xts)         # 时间序列处理
+library(candlesticks) # K线模式识别
+
+# 获取TSLA近期数据
+start_date <- Sys.Date() - 180  # 最近6个月数据
+tsla <- tryCatch({
+  getSymbols("TSLA", src = "yahoo", from = start_date, auto.assign = FALSE)
+}, error = function(e) {
+  stop("数据获取失败，请检查网络连接或股票代码")
+})
+
+# 转换为数据框格式
+tsla_df <- data.frame(Date = index(TSLA), coredata(TSLA))
+colnames(tsla_df) <- c("Date", "Open", "High", "Low", "Close", "Volume", "Adjusted")
+```
+
+价格走势分析 近期K线图
+
+```{R}
+ggplot(tsla_df, aes(x = Date)) +
+  geom_candlesticks(aes(open = Open, high = High, low = Low, close = Close),
+                   color_up = "green", color_down = "red", 
+                   fill_up = "darkgreen", fill_down = "darkred") +
+  labs(title = "TSLA近6个月K线图", y = "价格(美元)", x = "日期") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", size = 14))
+```
+
+移动平均线分析
+
+```{R}
+# 计算技术指标
+tsla_xts <- xts(tsla_df[,2:7], order.by = tsla_df$Date)
+tsla_xts$MA20 <- SMA(Cl(tsla_xts), 20)
+tsla_xts$MA50 <- SMA(Cl(tsla_xts), 50)
+
+# 绘制移动平均线
+autoplot(tsla_xts[, "Close"], series = "收盘价") +
+  autolayer(tsla_xts$MA20, series = "20日均线") +
+  autolayer(tsla_xts$MA50, series = "50日均线") +
+  labs(title = "TSLA价格与移动平均线", y = "价格(美元)") +
+  scale_color_manual(values = c("black", "blue", "red")) +
+  theme_bw()
+```
+
+技术指标分析
+
+```{R}
+
+par(mfrow = c(3,1))
+
+# RSI相对强弱指标
+
+tsla_xts$RSI <- RSI(Cl(tsla_xts))
+plot(tsla_xts$RSI, main = "RSI相对强弱指标(14日周期)", ylab = "RSI值", col = "purple") abline(h = c(30, 70), lty = 2, col = "gray")
+
+# MACD指标
+
+macd \<- MACD(Cl(tsla_xts)) plot(macd[, "macd"], main = "MACD指标", col = "blue") lines(macd[, "signal"], col = "red") legend("topleft", legend = c("MACD", "信号线"), col = c("blue", "red"), lty = 1)
+
+成交量分析
+
+barChart(tsla_xts\$Volume, theme = "white", main = "成交量分析", bar.type = "ohlc")
+```
+
+波动性分析
+
+```{R}
+# 计算波动性指标
+tsla_xts$Returns <- dailyReturn(Cl(tsla_xts))
+tsla_xts$Volatility <- volatility(tsla_xts, calc = "close", n = 20)
+
+# 波动性可视化
+ggplot(tsla_df, aes(x = Date, y = High - Low)) +
+  geom_col(aes(fill = Close > Open), alpha = 0.7) +
+  scale_fill_manual(values = c("red", "green")) +
+  labs(title = "TSLA价格波动范围", y = "单日波幅(美元)") +
+  theme(legend.position = "none")
+```
+
+关键模式识别 
+
+```{r} 
+# Candlestick模式检测 
+#bullish_patterns \<- candle.reversal.up(tsla) 
+#bearish_patterns \<- candle.reversal.down(tsla)
+
+cat("近期检测到的主要看涨模式：\n") print(unique(bullish_patterns\$candle.type))
+
+cat("\n近期检测到的主要看跌模式：\n") print(unique(bearish_patterns\$candle.type)) 
+```

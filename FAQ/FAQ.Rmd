@@ -1,0 +1,4121 @@
+---
+title: "金融时间序列分析常见问题集"
+author:
+  - 邓一硕
+documentclass: ctexart
+keywords:
+  - 金融
+  - 时间序列
+  - R
+  - 问题集
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(
+  tidy = TRUE,
+  tidy.opts = list(width.cutoff = 60),
+  out.width = "80%",
+  fig.align = "center"
+)
+```
+
+\newpage
+
+# 前言
+
+本书分为上下两篇，上篇为基础篇，下面为应用篇。
+
+# 基础篇
+
+## 时间序列基础
+
+### 创建时间序列对象 
+
+需要加载的 R 包
+
+```{R include=FALSE}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### R 进行金融分析时最常用的时间序列类型是什么?
+
+zoo 包中的 zoo 格式，xts 包中的 xts 格式和 timeSeries 包中的 timeSeries 格式，使用 timeSeries 包时需要 timeDate 提供支撑。
+
+#### 这三种时间序列对象的时间戳有哪些不同？
+
+zoo 类型时间序列对象和 xts 类型的时间序列对象的时间戳标记取决于生成时间序列对象是所使用的时间戳标记的类型。而 timeSeries 对象的时间戳标记与生成时间序列对象时所使用的时间戳标记是独立的，timeSeries 对象的时间戳通常是数值型。
+
+#### 创建时间序列对象时最常用的时间戳标记是什么类型的？
+
+对于 zoo 对象和 xts 对象而言，当其处理的是日记录数据时，由于不用关心时区信息，因此通常用 Date 类型的时间戳标记；当期处理的是盘中数据时、或者涉及时区信息和夏时令时，通常用 POSIXct 类型的时间戳标记。timeSeries 对象的时间戳标记通常是 timeDate 对象，timeDate 本身携带了 Olsen 时区数据的基准信息。
+
+#### 时间序列对象依赖于其被创建的方式吗？
+
+对于依赖于操作系统时区信息的 zoo 对象和 xts 对象而言是这样的，zoo 对象和 xts 对 象的显示结果跟操作系统的内部时区设置以及夏令时规则有关，因此，同样的 zoo 对象和 xts 对象在不同的操作系统上可能结果不一致。而 timeSeries 对象不受此影响，因为timeSeries 对象的时间戳标识为 timeDate 对象。timeDate 对象一般是以 POSIXct 格式存储的 GMT 时间，其将时区和 DST 信息与 Rmetrics 中的 Olsens 时区数据库单独存储。
+
+#### 在不需要关心时区信息时，当前的时区环境对时间序列对象的创建有什么影响？
+
+对于 zoo 对象和 xts 对象，作为默认时间戳标识类型的 as.POSIXct
+函数会基于本地系统环境中的时区设置来创建时间戳。
+
+```{r}
+options(width=50)
+args(zoo) 
+args(xts) 
+args(as.POSIXct) 
+```
+
+因此，虽然操作相同，伦敦、纽约和东京的用户却将得到不同的操作结果。采用 ISOdatatime 函数创建时间戳时也会遇到同样的情况。
+
+```{r}
+options(width=50)
+args(ISOdatetime) 
+```
+
+慎用 ISOdate 函数！
+
+```{R}
+options(width = 50)
+args(ISOdate) 
+```
+
+默认设置下，ISOdate 函数会创建一个基于 GMT 时间的时间戳标识，只是时间提前了 12 小时。
+
+注意：三个函数都将返回一个 POSIXct 类型的时间戳标识。对于 timeSeries 对象而言，当基于字符串、合适的时区信息或者标识金融中心信息时都无需考虑系统环境问题。
+
+```{R}
+
+options(width=50)
+args(timeSeries) 
+
+args(timeDate) 
+```
+
+#### 如何查看当前系统的时区环境？
+
+Sys.timezone() 函数可以返回系统中时区环境的当前设置。
+
+```{r}
+Sys.timezone() 
+
+```
+
+#### 如何基于现有的字符格式的时间戳创建日时间序列对象的时间戳标识？
+
+对于 zoo 对象和 xts 对象，创建日时间序列数据的时间戳标识可以用 Date 函数。
+
+```{r}
+args(as.Date) 
+```
+
+Date 对象不涉及时区信息，系统一般讲 Date 对象默认为 GMT 时间格式。对于 timeSeries 对象，最好把现有的文本型时间戳调整为 ans 格式。
+
+常规数据 
+
+```{R}
+set.seed(1953)
+data <-rnorm(6)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+zoo(data, as.Date(charvec)) 
+```
+
+xts: 
+
+```{R}
+xts(data, as.Date(charvec)) 
+```
+
+timeSeries: 
+
+```{r}
+timeSeries(data, charvec) 
+
+```
+
+#### 如何创建过去 50 天的日时间序列数据？
+
+常规数据:
+
+```{R}
+set.seed(1953)
+data <-matrix(rnorm(22), ncol = 2)
+now <-"2009-01-05"
+```
+
+zoo: 
+
+```{r}
+zoo(data, as.Date(now)-0:10) 
+
+```
+
+xts:
+
+```{r}
+
+xts(data, as.Date(now)-0:10) 
+
+```
+
+timeSeries: 
+
+```{r}
+timeSeries(data, as.Date(now)-0:10) 
+```
+
+timeSeries 函数同样能处理 R 中的 Date 型变量。
+
+#### 基于 POSIXct 标识创建时间序列对象时有哪些要注意的？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-rnorm(6)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data, as.POSIXct(charvec))
+z2 <-zoo(data, ISOdatetime(2009, 1:6, 1, 0, 0, 0))
+z3 <-zoo(data, ISOdate(2009, 1:6, 1, 0))
+z1; z2; z3
+```
+
+注意，上面三种方式创建的 zoo 类型时间序列对象完全一致，无法从输出结果上判断出 zoo 对象时间戳是基于何种方式创建的。
+
+xts: 
+
+```{r}
+x1 <-xts(data, as.POSIXct(charvec))
+x2 <-xts(data, ISOdatetime(2009, 1:6, 1, 0, 0, 0))
+x3 <-xts(data, ISOdate(2009, 1:6, 1, 0))
+x1; x2; x3
+```
+
+timeSeries: 
+
+```{R}
+s1 <-timeSeries(data, charvec)
+s2 <-timeSeries(data, ISOdatetime(2009, 1:6, 1, 0, 0, 0))
+s3 <-timeSeries(data, ISOdate(2009, 1:6, 1, 0))
+s1; s2; s3
+```
+
+#### 时间序列对象的标识/时间跟对象的创建方式有关吗？
+
+常规数据 
+
+延用上例数据。
+
+zoo: 
+
+```{R}
+class(index(z1)) 
+
+class(index(z2)) 
+
+class(index(z3)) 
+```
+
+xts: 
+
+```{R}
+class(index(x1)) 
+
+class(index(x2)) 
+
+class(index(x3)) 
+```
+
+timeSeries: 
+
+```{r}
+class(time(s1)) 
+
+class(time(s2)) 
+
+class(time(s3)) 
+```
+
+### 规则时间序列对象 
+
+需要加载的 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+首先，弄清楚什么是规则时间序列。oracle 数据库操作手册对此的定义如下：根据时间序列的新记录能否被预测可以讲时间序列分为规则时间序列和不规则时间序列。
+
+规则时间序列，规则时间序列数据的新记录通常在规定的时间间隔内出现。比如，股票市场的日数据可以形成一个规则时间序列，股票 XYZ 自 1997 年以来的交易量序列、开盘价序列、最高价序列、最低价序列和收盘价序列可以构成规则时间序列数据。
+
+不规则时间序列:不规则时间序列数据的新纪录通常不在预计时刻出现，或者说不规则时间序列的样本点的时间戳不遵循特定的循环模型呢个。例如，ATM 及上的存入款和取出款数据构成一个不规则时间序列。不规则时间序列，经常会在某个时间段，没有数据记录，而在某个较短的时间段涌现出大量数据记录。
+
+这里关于规则时间序列的定义跟 R 用户或者程序员脑海中的概念是不同的，在 R 中，时间戳标记（通常是基于日历日期）为等间隔的时间序列就是规则时间序列。这个概念更为严格。
+
+例如：应用最广泛的规则时间序列是没有日时间戳和时刻时间戳标识的月度时间序列或者季度时间序列。在 R 中，两者是根据其与年的换算关系来进行描述，譬如，月度数据对应的参数是 12，因为一年有 12 个月，季度数据对应的参数是 4，因为一年有四季度。
+
+```{r}
+args(ts) 
+
+data <-round(rnorm(24), 4)
+ts(data, start = c(2008, 3), frequency = 12)
+
+ts(data, start = c(2008, 3), frequency = 4) 
+```
+
+#### 如何创建一个规则的月度时间序列对象？
+
+常规数据 
+
+```{r}
+data <-round(rnorm(24), 4) 
+```
+
+ts: 
+
+```{r}
+tm <-ts(data, start = c(2008, 3), frequency = 12)
+tm
+```
+
+zoo: 
+
+```{r}
+zm <-zooreg(data, start = c(2008, 3), frequency = 12)
+zm
+
+```
+
+xts: 
+
+```{r}
+xm <-as.xts(tm)
+xm
+
+```
+
+timeSeries: 
+
+```{r}
+sm <-as.timeSeries(tm)
+sm
+```
+
+#### timeSeries 对象能以规则时间序列样式显示吗？
+
+是的。
+
+```{r}
+print(sm, style = "h") 
+```
+
+#### 能自定义 timeSeries 对象的日期格式吗？
+
+```{r}
+print(sm, style = "h", format = "%Y %b") 
+
+print(sm, style = "h", format = "%Y(%m)") 
+```
+
+#### 如何创建一个规则的季度时间序列对象？
+
+常规数据 
+
+```{r}
+data <-round(rnorm(24), 4) 
+```
+
+ts: 
+
+```{r}
+tq <-ts(data, start = c(2008, 3), frequency = 4)
+tq
+```
+
+zoo: 
+
+```{r}
+zq <-zooreg(data, start = c(2008, 3), frequency = 4)
+zq
+```
+
+xts: 
+
+```{r}
+xq <-as.xts(tq)
+head(xq)
+```
+
+timeSeries: 
+
+```{r}
+sq <-as.timeSeries(tq)
+head(sq)
+```
+
+#### timeSeries 对象能以规则时间序列的样式显示吗？
+
+是的。
+
+```{r}
+print(sq, style = "h") 
+```
+
+#### 能自定义 timeSeries 对象的时间格式吗？
+
+可以！
+
+```{r}
+print(sq, style = "h", format = "%Y %b") 
+
+print(sq, style = "h", format = "%Q") 
+```
+
+#### 如何知道一个时间序列对象是否是规则时间序列呢？
+
+zoo: 
+
+```{R}
+z <-zooreg(data, start = c(2008, 3), frequency = 4)
+is.regular(z)
+```
+
+### 时区和夏令时 
+
+需要载入的 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何创建一个与时区相关的时间序列对象？
+
+创建一个苏黎世所在的中欧时区的时间序列。
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z1.zrh <-zoo(data, as.POSIXct(charvec, tz = "CET"))
+z1.zrh
+```
+
+xts: 
+
+```{r}
+x1.zrh <-xts(data, as.POSIXct(charvec, tz = "CET"))
+x1.zrh
+```
+
+最先版本的 xts 包已经不再支持上述功能，现在 xts 会强制的将时间戳对应到 GMT 时区。
+
+timeSeries: 
+
+```{r}
+s1.zrh <-timeSeries(data, charvec, zone = "Zurich", FinCenter = "Zurich") 
+s1.zrh 
+```
+
+timeSeries 函数有两个与时区设置相关的参数。第一个参数 zone，用以设定创建时间序列对象是所用到的时间戳标识所属的时区信息和金融中心信息；第二个参数是 FinCenter,用以设定将来显示或者调用时间序列对象时所在的时区或者金融中心。
+
+```{r}
+args(timeSeries) 
+```
+
+查看一下，因为参数设置不同所能产生的四种情况。
+
+```{r}
+timeSeries(data, charvec, zone = "Zurich", FinCenter = "Zurich", units 
+= "s1.zrh.zrh") 
+
+timeSeries(data, charvec, zone = "GMT", FinCenter = "Zurich", units = 
+"s1.gmt.zrh") 
+
+timeSeries(data, charvec, zone = "Zurich", FinCenter = "GMT", units = 
+"s1.zrh.gmt") 
+
+timeSeries(data, charvec, zone = "GMT", FinCenter = "GMT", units = 
+"s1.gmt.gmt") 
+```
+
+#### 查看时间序列时，能够看到时间序列的时区信息？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+注意：zoo 对象的时间戳必须是支持时区设置的时间戳类型、比如 POSIX 类型。
+
+```{r}
+z1.zrh <-zoo(data, as.POSIXct(charvec, tz = "CET"))
+z1.zrh
+```
+
+zoo 时间序列对象在显示时，不会自动显示时区信息。
+
+xts: 
+
+xts 对象的时间戳必须是支持时区设置的时间戳类型、比如 POSIX 类型。
+
+```{r}
+x1.zrh <-xts(data, as.POSIXct(charvec, tz = "CET"))
+x1.zrh
+```
+
+timeSeries: 
+
+```{r}
+s1.zrh <-timeSeries(data, charvec, zone = "Zurich", FinCenter = "Zurich") 
+s1.zrh 
+```
+
+注意：timeSeries 对象在显示会在头部显示对象所属的时区信息（或者金融中心信息）。
+
+该信息提取自 timeDate 类型的时间戳对象。
+
+#### 如何查看时间序列所属的时区信息？
+
+对于 zoo 对象和 xts 对象，可以用 index 函数来查看时区信息；对于 timeSeries 对象，用 time 函数。
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+z1.zrh <-zoo(data, as.POSIXct(charvec, tz = "CET"))
+index(z1.zrh)
+```
+
+xts: 
+
+```{r}
+x1.zrh <-xts(data, as.POSIXct(charvec, tz = "CET"))
+index(x1.zrh)
+```
+
+timeSeries: 
+
+```{r}
+s1.zrh <-timeSeries(data, charvec, zone = "Zurich", FinCenter = "Zurich") 
+time(s1.zrh) 
+```
+
+注意：也可以用 finCenter()函数来保留或者设置 timeSeries 对象的时区信息。
+
+```{r}
+currentCenter <-finCenter(s1.zrh)
+currentCenter
+```
+
+#### 如何查看创建时间序列对象时用到的夏令时规则呢？
+
+zoo及xts对象: 
+
+目前无法做到。
+
+timeSeries: 
+
+对于 timeSeries 对象，可以通过查看夏令时规则的数据框获知创建时间序列对象时的时区信息。为了简便，下面展示部分夏令时规则的记录数据：
+
+```{r}
+Zurich()[54:64, ] 
+```
+
+上表展示苏黎世的夏令时变化规律。第一列为苏黎世当地时间，第二列为苏黎世时间与GMT 时间的延迟（以秒计），第三列标识夏令时规则是否在执行，第四列为时区缩写，第五列标识时间戳变化时的秒针信息。
+
+#### 创建时间序列对象时，能用哪些时区呢？
+
+zoo和xts: 
+
+不知道 zoo 和 xts 包具体支持哪些时区。
+
+#### 你能告诉我 Mumbai 股票交易所位于按个时区吗？
+
+这个问题没有固定答案。Unix 系统下，可以通过查看/usr/share/tzone 找到 zoo 和 xts包找到支持的区列表。
+
+timeSeries: 
+
+对于 timeSeries 对象，可用 listFinCenter函数来查看所有被支持的金融中心的时区列表。
+
+```{r}
+length(listFinCenter()) 
+```
+
+结果太多，无法全部显示。选取太平洋地区的部分时区和首字母为 L 的全部时区：
+
+```{R}
+listFinCenter("Pacific") 
+
+listFinCenter(".*/L") 
+```
+
+甚至可以定制自己的金融中心。譬如，德国的夏令时规则为“Germany/Berlin”，身为银行家的你却更偏好用法兰克福时区，你可以定制自己的时区列表。
+
+```{r}
+Frankfurt <-Berlin
+timeSeries(runif(1:12), timeCalendar(), zone = "Frankfurt", FinCenter = "Frankfurt")
+```
+
+注意，timeCalendar 函数来自于 timeDate 包中，其作用是用来当前年份创建月度时间戳。
+
+#### 如何改变现有时间序列对象的时区信息?
+
+zoo 及 xts对象: 
+
+没有直接方法。建议先提取出时间戳，将新旧时区的差值加上之后，用新的时间戳覆盖旧时间戳。
+
+timeSeries: 
+
+对于 timeSeries 对象，可以用 finCenter 函数来改变现有数据的时区信息。譬如，有一个在伦敦记录的时间序列数据，现在要调整为纽约当地时间，以备在苏黎世查看。
+
+```{r}
+ZRH <-timeSeries(rnorm(6), timeCalendar(2009)[7:12], zone = "London",FinCenter = "Zurich")
+
+ZRH
+
+finCenter(ZRH) <-"New_York"
+ZRH
+```
+
+上例反映出，在欧洲和美国，夏令时与冬令时的转变月份不同，准确的说，一个在 10月，一个在 11 月。查看一下夏令时表确认一下。
+
+```{r}
+Zurich()[63,] 
+
+New_York()[179,] 
+```
+
+#### 数据记录的两个城市，属于同一个时区但有不同的 DST 规则，如何处理这样的情况呢？
+
+zoo及xts对象: 
+
+无法处理。
+
+timeSeries: 
+
+1940 至 1985 年间，德国和瑞士发生过多次类似情况。来看一下包含 DST 规则表：
+
+```{r}
+Berlin()[8:38,] 
+
+Zurich()[2:15,] 
+```
+
+在苏黎世当地时间记录的入夜时间为 16:00，假如我们想在柏林应用这一批数据。问题是，最早能在柏林当地时间的什么时候，来开始调查这批数据呢？
+
+```{r}
+charvec <-paste("1980-0", 2:5, "-15 16:00:00", sep = "")
+charvec
+
+timeSeries(runif(4), charvec, zone = "Zurich", FinCenter = "Berlin", 
+units = 
+"fromZurich") 
+```
+
+在 2 月和 3 月，我们能在伯林，用和苏黎世相同的时间 16:00，来开始我们的调查。而在 4 月和 5月，我们却要在比苏黎世时间晚一个小时的 17:00 开始调查。
+
+### 时间序列对象的排序以及重合日期处理 
+
+需要载入的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何创建一个逆序的时间序列数据？
+
+常规数据 
+
+```{r}
+set.seed <-1953
+data <-rnorm(6)
+charvec <-rev(paste("2009-0", 1:6, "-01", sep = ""))
+charvec
+```
+
+注意:字符型向量 charvec 是逆序的。
+
+zoo 及 xts对象: 
+
+```{r}
+zoo(data, as.Date(charvec)) 
+
+xts(data, as.Date(charvec)) 
+```
+
+zoo 对象和 xts 对象一般会被强制转化为正序，因此，无法创建逆序的时间序列对象。
+
+timeSeries: 
+
+timeSeries 对象可以是正序的，也可以是逆序的，甚至于可以随机排序。
+
+```{r}
+tS <-timeSeries(data, charvec)
+tS
+```
+
+取逆序
+
+```{r}
+rev(tS) 
+```
+
+随机排序
+
+```{r}
+sample(tS) 
+```
+
+#### 如何创建一个时期重叠的时间戳？
+
+和创建非时期重叠的时间序列的方法相同。
+
+常规数据 
+
+```{r}
+data1 <-c(1:6, 0)
+charvec1 <-c(paste("2009-0", 1:6, "-01", sep = ""), "2009-04-01")
+charvec1
+ 
+data2 <-0:6
+charvec2 <-c("2009-04-01", paste("2009-0", 1:6, "-01", sep = ""))
+charvec2
+```
+
+zoo: 
+
+```{r}
+zoo(data1, as.Date(charvec1)) 
+
+zoo(data2, as.Date(charvec2)) 
+```
+
+zoo()将会返回一个警告信息，声明 zoo()方法出现了错误。
+
+xts: 
+
+xts 对象对 zoo 对象进行了扩展，其能支持时期重叠的时间戳。
+
+```{r}
+xts(data1, as.Date(charvec1)) 
+
+xts(data2, as.Date(charvec2)) 
+```
+
+timeSeries: 
+
+timeSeries 对象支持时期重叠的时间戳。
+
+```{r}
+timeSeries(data1, charvec1) 
+
+timeSeries(data2, charvec2) 
+```
+
+这种方法下创建的时间戳与 charvec 的时间戳顺序相同。这是timeSeries 对象的特色，其可以记录用户记录时间序列时所使用的时间戳顺序。对 timeSeries 对象进行排序可以用sort 函数。
+
+```{R}
+sort(timeSeries(data1, charvec1)) 
+
+sort(timeSeries(data2, charvec2)) 
+```
+
+也可以将 timeSeries 对象进行逆序排列。
+
+```{R}
+sort(timeSeries(data1, charvec1), decreasing = TRUE) 
+```
+
+如果想保留数据的初始顺序记录，可以将其保存在时间序列对象的@recordIDs 序列中,下面演示一下如何保存和提取这种信息。
+
+```{R}
+args(timeSeries) 
+
+data3 <-round(rnorm(7), 2)
+charvec3 <-sample(charvec1)
+tS <-sort(timeSeries(data3, charvec3, recordIDs = data.frame(1:7)))
+tS
+```
+
+现在用同样的方法来提取出排序的信息
+
+```{R}
+tS@recordIDs 
+```
+
+也可以用直接对比性报告的形式将其打印出来。
+
+```{R}
+cbind(series(tS), as.matrix(tS@recordIDs)) 
+
+data3 
+```
+
+#### 如何处理时间序列对象的附加属性信息？
+
+考虑一个稍微复杂一些的例子。现在有来自不同公司的 dates, dateOfOffer, price offers, offeredPrice 数据，以及公司名称和折扣率数据。供应商和折扣率信息被保存在一个名为priceInfo 的数据框中。
+
+```{r}
+offeredPrice <-100-c(3.4, 3.2, 4, 4, 4.1, 3.5, 2.9)
+offeredPrice
+
+dateOfOffer <-paste("2009-0", c(1:3, 3, 4:6), "-01", sep = "")
+dateOfOffer
+
+providerCompany <-c(rep("UISA Ltd", times = 3), "HK Company", 
+rep("UISA Ltd 
+", times = 3)) 
+providerCompany 
+
+ratingOfOffer <-c(rep("AAA", times = 3), "BBB", rep("AAB", times = 3)) 
+ratingOfOffer 
+
+priceInfo <-data.frame(providerCompany, ratingOfOffer)
+priceInfo
+```
+
+zoo: 
+
+基于日期和价格创建了一个 zoo 时间序列对象，同时将供应商和折扣率的信息保存在
+info 属性中。
+
+```{R}
+zp <-zoo(offeredPrice, as.Date(dateOfOffer))
+attr(zp, "info") = priceInfo
+zp
+
+zp 
+
+attr(zp, "info") 
+```
+
+xts: 
+
+与上面操作相同。
+
+```{r}
+xp <-xts(offeredPrice, as.Date(dateOfOffer)) 
+attr(xp, "info") = priceInfo 
+xp 
+
+
+attr(xp, "info") 
+```
+
+timeSeries: 
+
+```{r}
+tS <-timeSeries(offeredPrice, dateOfOffer, recordIDs = priceInfo) 
+tS 
+
+tS@recordIDs 
+```
+
+对于 timeSeries 对象而言，大部分的属性都能够通过@recordsID 序列进行处理。
+
+#### 当调整时间序列时，对属性有什么影响？
+
+考虑前面的一个例子。从上面的时间序列中移除第 4 个 offer 记录。
+
+zoo: 
+
+```{r}
+zx <-zp[-4]
+zx
+
+attr(zx, "info") 
+```
+
+经过这个操纵，zoo对象的属性被删除了。只能重新核查并重新添加余下的属性信息。
+
+```{r}
+zx 
+
+attr(zx, "info") <-priceInfo[-4,]
+zx
+```
+
+观察一下同样的操作对 xts 的影响。首先，删除了第四个观测，再把结果展示出来。
+
+```{r}
+xx <-xp[-4]
+xx
+```
+
+与 zoo 不同，xts 没有删除全部属性信息，不过，其保留了全部属性信息。一个补救的办法是删除该记录的属性。
+
+```{r}
+attr(xx, "info") <-attr(xx, "info")[-4, ]
+xx
+```
+
+timeSeries: 
+
+```{r}
+tX <-tS[-4, ]
+tX
+
+tX@recordIDs 
+```
+
+timeSeries 对象能够处理存储于@recordIDs 序列中的所有属性信息，不需要任何附加操作。 
+
+### 时间序列的连接与合并 
+
+需加载的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何对两个时间序列对象进行行合并？
+
+使用 rbind 函数，可以完成两个时间序列的行合并。
+
+常规数据 
+
+```{r}
+data <-c(1:6)
+charvec1 <-paste("2009-0", 1:6, "-01", sep = "")
+charvec1
+
+charvec2 <-c(paste("2009-0", 7:9, "-01", sep = ""),
+paste("2009-", 10:12, "-01", sep = ""))
+charvec2
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data, as.Date(charvec1))
+z2 <-zoo(data+6, as.Date(charvec2))
+rbind(z1, z2) 
+
+rbind(z2, z1) 
+```
+
+注意：rbind 函数的参数输入顺序并不影响函数的操作结果。
+
+xts: 
+
+```{r}
+x1 <-xts(data, as.Date(charvec1))
+x2 <-xts(data+6, as.Date(charvec2))
+rbind(x1, x2) 
+
+rbind(x2, x1) 
+```
+
+同样地，行合并的结果依然是一个已排序的时间序列。
+
+timeSeries: 
+
+```{r}
+s1 <-timeSeries(data, charvec1)
+s2 <-timeSeries(data+6, charvec2)
+rbind(s1, s2) 
+
+rbind(s2, s1) 
+```
+
+注意: rbind 函数的参数输入顺序影响了 rbind 函数的操作结果。不过，这不是 timeSeries 对象的 bug，而是其特色之处。如果想要得到与前面两次相同的结果,只需要对结果像这样进行排序就可以了。
+
+```{r}
+sort(rbind(s2, s1)) 
+```
+
+#### 能对时期重叠的时间序列进行行合并吗？
+
+常规数据 
+
+```{r}
+data1 <-1:6
+data2 <-3:9
+charvec1 <-paste("2009-0", 1:6, "-01", sep = "")
+charvec1
+
+charvec2 <-paste("2009-0", 3:9, "-01", sep = "")
+charvec2
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data1, as.Date(charvec1))
+z2 <-zoo(data2, as.Date(charvec2))
+print(try(rbind(z1, z2))) 
+
+print(try(rbind(z2, z1))) 
+```
+
+时期重叠的 zoo 格式的时间序列无法进行合并。
+
+xts: 
+
+```{r}
+x1 <-xts(data1, as.Date(charvec1))
+x2 <-xts(data2, as.Date(charvec2))
+rbind(x1, x2) 
+
+rbind(x2, x1) 
+```
+
+(尽管 rbind 操作顺利地执行了), xts 包不会将时期重叠的时间序列进行简单的合并, 更没有保留原有的时间序列的时间戳顺序，操作结果是一个正序的时间序列。
+
+timeSeries: 
+
+```{r}
+s1 <-xts(data1, as.Date(charvec1))
+s2 <-xts(data2, as.Date(charvec2))
+rbind(s1, s2) 
+
+rbind(s2, s1) 
+```
+
+timeSeries 对象可以完美支持时期重叠的时间序列的合并操作, 且会保留时间戳的原始顺序。
+
+#### 如何对时间序列对象进行列合并?
+
+常规数据 
+
+```{r}
+data1 <-1:6
+data2 <-data1 + 6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data1, as.Date(charvec))
+z2 <-zoo(data2, as.Date(charvec))
+cbind(z1, z2) 
+
+cbind(z2, z1) 
+```
+
+注意: cbind 函数的参数输入顺序将影响到 cbind 函数的操作结果。
+
+xts: 
+
+```{r}
+x1 <-xts(data1, as.Date(charvec))
+x2 <-xts(data2, as.Date(charvec))
+cbind(x1, x2) 
+
+cbind(x2, x1) 
+```
+
+timeSeries: 
+
+```{r}
+s1 <-timeSeries(data1, as.Date(charvec))
+s2 <-timeSeries(data2, as.Date(charvec))
+cbind(s1, s2) 
+
+cbind(s2, s1) 
+```
+
+跟 zoo 对象和 xts 对象类似，对 timeSeries 对象进行列合并时，cbind 函数的参数输入顺序会影响到 cbind 函数的操作结果。
+
+#### 能对时期重叠的时间序列进行列合并吗？
+
+常规数据 
+
+```{r}
+data1 <-1:6
+data2 <-4:8
+charvec1 <-paste("2009-0", 1:6, "-01", sep = "")
+charvec1
+
+charvec2 <-paste("2009-0", 4:8, "-01", sep = "")
+charvec2
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data1, as.Date(charvec1))
+z2 <-zoo(data2, as.Date(charvec2))
+cbind(z1, z2) 
+```
+
+时期重叠的 zoo 时间序列对象，可以进行列合并。合并过程中产生的缺失值将以 NA 来代替。
+
+xts: 
+
+```{r}
+x1 <-xts(data1, as.Date(charvec1))
+x2 <-xts(data2, as.Date(charvec2))
+cbind(x1, x2) 
+```
+
+时期重叠的 xts 时间序列对象也可以进行列合并，合并过程中产生的缺失值将以 NA 代替。合并过程中列名会有所变化，注意时间序列的列名丢失了。
+
+timeSeries: 
+
+```{R}
+s1 <-timeSeries(data1, as.Date(charvec1), units = "s1")
+s2 <-timeSeries(data2, as.Date(charvec2), units = "s2")
+cbind(s1, s2) 
+```
+
+timeSeries 对象可以完美支持对时期重叠的时间序列对象进行列合并操作。与 zoo 对象和 xts 对象一样，合并过程中产生的缺失值将以 NA 代替。
+
+#### 如何合并两个时间序列对象，合并操作跟列合并和行合并操作有什么不同之处？
+
+base 包中的 merge 函数可以用以合并数据框。
+
+```{r}
+args(merge.data.frame) 
+```
+
+帮助文档里面可以看到如下信息：Merge two data frames by common columns or row 
+names, or do other versions of database "join"operations.因此，可以直觉推测，merge 函
+数应该可以像合并数据框一样合并时间序列对象。
+
+注意：上述推断也意味着针对时间序列对象的合并操作与数据框的合并操作是一样的。
+
+#### 将两个一样的时间序列对象合并，会怎样？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec)) 
+merge(z, z) 
+```
+
+zoo 对象返回一个双变量时间序列对象。
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec)) 
+merge(x, x) 
+```
+
+xts 对象也将返回一个双变量时间序列对象。
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec) 
+merge(s, s) 
+
+merge(as.data.frame(s), as.data.frame(s)) 
+```
+
+timeSeries 对象的操作方式与 zoo 对象和 xts 对象不同，timeSeries 对象跟 data.frame 对象更类似。
+
+#### 如何合并两个不同的单变量时间序列？
+
+常规数据 
+
+```{r}
+data1 <-1:6 
+data2 <-data1 + 3 
+charvec1 <-paste("2009-0", 1:6, "-01", sep = "") 
+charvec1 
+
+charvec2 <-paste("2009-0", 4:9, "-01", sep = "") 
+charvec2 
+```
+
+zoo: 
+
+```{R}
+z1 <-zoo(data1, as.Date(charvec1)) 
+z2 <-zoo(data2, as.Date(charvec2)) 
+merge(z1, z2) 
+```
+
+xts: 
+
+```{R}
+x1 <-xts(data1, as.Date(charvec1))
+x2 <-xts(data2, as.Date(charvec2))
+merge(x1, x2) 
+```
+
+timeSeries: 
+
+```{r}
+s1 <-timeSeries(data1, as.Date(charvec1), units = "s1")
+s2 <-timeSeries(data2, as.Date(charvec2), units = "s2")
+merge(s1, s2) 
+```
+
+三种类型的时间序列对象的合并结果都一样。
+
+#### 把两个含有相同信息的单变量时间序列合并在一起,会如何?
+
+常规数据 
+
+```{r}
+data1 <-1:6
+data2 <-data1 + 3
+charvec1 <-paste("2009-0", 1:6, "-01", sep = "")
+charvec1
+
+charvec2 <-paste("2009-0", 4:9, "-01", sep = "")
+charvec2
+```
+
+zoo: 
+
+无法完成该操作。
+
+xts: 
+
+对于 xts 时间序列数据类型,可以现将列名称设置成一致的,然后将其合并在一起。
+
+```{r}
+x1 <-xts(data1, as.Date(charvec1))
+colnames(x1) <-"x"
+z2 <-xts(data2, as.Date(charvec2))
+colnames(x2) <-"x"
+merge(x1, x2) 
+```
+
+操作返回一个列名称为 x 和 x.1 的双变量时间序列。
+
+timeSeries: 
+
+```{r}
+s1 <-timeSeries(data1, charvec1, units = "s")
+s2 <-timeSeries(data2, charvec2, units = "s")
+merge(s1, s2) 
+```
+
+在 timeSeries 中, 我们得到了不一样的结果。因为两个序列含有相同的信息集合“s”,我们所得到的是一个单变量序列。
+
+#### 能将时间序列对象跟一个数值元素合并吗？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+
+const <-3.4 
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec)) 
+merge(z, const) 
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec)) 
+merge(x, const) 
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec) 
+merge(s, const) 
+```
+
+#### 能将时间序列对象和数值型向量合并吗？
+
+常规数据 
+
+```{R}
+data <-1:6
+data
+
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+
+vec <-3.4 -1:6
+vec
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec)) 
+merge(z, vec) 
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec)) 
+merge(x, vec) 
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec) 
+merge(s, vec) 
+```
+
+#### 能将时间序列对象与数值型矩阵合并吗？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+
+mat <-matrix((1:12)-6, ncol = 2) -3.4
+mat
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec)) 
+merge(z, mat) 
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec)) 
+merge(x, mat) 
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec) 
+merge(s, mat) 
+```
+
+### 时间序列对象的取子集操作 
+
+需要加载的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何对向量和矩阵进行取子集操作？
+
+向量是线性对象，因此只需要一个下标即可对其进行取子集操作。
+
+```{r}
+vec <-rnorm(6)
+vec
+
+vec[3:4] 
+```
+
+向量对象没有维度，其长度等于其所含有的元素数。
+
+```{R}
+dim(vec) 
+
+length(vec) 
+```
+
+矩阵是一个方形的对象,故需要一对下标对其进行取子集操作：一个为行标, 一个为列标。
+
+```{r}
+mat <-matrix(rnorm(18), ncol = 3)
+mat
+
+mat[3:4,] 
+
+mat[, 2:3] 
+
+mat[3:4, 2:3] 
+```
+
+对于矩阵而言，有如下结果：
+
+```{R}
+dim(mat) 
+
+length(mat) 
+```
+
+dim 函数返回了矩阵的行列数。length 函数返回了矩阵中元素的总数。当我们只取矩阵中的一行或一列会怎么样?
+
+```{R}
+mat[3,] 
+ 
+mat[, 2] 
+```
+
+这时长方形的对象变为线性的,结果变成了一个(单维)向量(而不是二维矩阵了)。为了避免这一情况的发生,我们可以采取一些措施,以确保我们不丢掉维度信息。
+
+```{r}
+rowmat <-mat[3, ,drop = FALSE]
+colmat <-mat[, 2, drop = FALSE]
+```
+
+#### 对时间序列对象进行取子集操作时，跟对向量和矩阵操作一样吗？
+
+不一定。取决于时间序列的对象类型。
+
+常规数据 
+
+```{R}
+data1 <-rnorm(1:6)
+data2 <-matrix(rnorm(18), ncol = 3)
+colnames(data2) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+单变量时间序列
+
+```{r}
+z <-zoo(data1, as.Date(charvec))
+z[3:4]
+```
+
+多变量时间序列
+
+```{r}
+Z <-zoo(data2, as.Date(charvec))
+Z[3:4,]
+
+Z[, 2:3] 
+
+Z[3:4, 2:3] 
+
+Z[, 2:3] 
+
+Z[3:4, 2:3] 
+```
+
+要注意的是, 一个单变量的 zoo 时间序列对象就像一个向量,而一个多变量的 zoo 时间序列对象则如同一个矩阵一样。取单独的行或列都会丢失维度（参见前一节)。
+
+xts: 
+
+单变量时间序列
+
+```{r}
+x <-xts(data1, as.Date(charvec))
+x[3:4]
+```
+
+多变量时间序列
+
+```{r}
+X <-xts(data2, as.Date(charvec))
+X[3:4,]
+ 
+X[, 2:3] 
+
+X[3:4, 2:3] 
+
+X[, 2:3] 
+
+X[3:4, 2:3] 
+```
+
+xts 对象通常被默认为方形对象来处理,即便在单变量的情况下也是如此。这种独特的处理方式是大大方便了对金融时间序列取子集操作。
+
+timeSeries: 
+
+单变量时间序列
+
+```{r}
+s <-timeSeries(data1, charvec)
+s[3:4]
+
+s[3:4, ] 
+```
+
+多变量时间序列
+
+```{r}
+S <-timeSeries(data2, charvec)
+S[3:4,]
+
+S[, 2:3] 
+
+S[3:4, 2:3] 
+```
+
+注意：timeSeries 对象总是需要用一对下标来完成取子集操作。这是 timeSeries 的一个特色。
+
+```{R}
+S[, 2:3] 
+
+S[3:4, 2:3] 
+```
+
+timeSeries 对象跟 xts 对象类似，都是方形对象。操作上又不少共同之处。
+
+#### 能否用列名对多变量时间序列进行取子集操作？
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(18), ncol = 3)
+colnames(data) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+Z[, "A"]
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+X[, "A"]
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+S[, "A"]
+```
+
+#### 能否用$符对多变量时间序列进行取列子集的操作？
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(18), ncol = 3)
+colnames(data) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+Z$B
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+X$B
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+S$B
+```
+
+#### 能否通过字符串时间戳对多变量时间序列对象进行取子集操作？
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(18), ncol = 3)
+colnames(data) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{R}
+Z <-zoo(data, as.Date(charvec))
+charvec[3:4]
+
+Z[charvec[3:4], ] 
+```
+
+xts: 
+
+```{R}
+X <-xts(data, as.Date(charvec))
+charvec[3:4]
+
+X[charvec[3:4], ] 
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+charvec[3:4]
+
+S[charvec[3:4], ] 
+```
+
+#### 能否用多变量时间序列自身的时间戳对其进行取子集操作呢?
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(18), ncol = 3)
+colnames(data) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec)) 
+timeStamp <-index(Z)[3:4] 
+timeStamp 
+
+Z[timeStamp, ] 
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec)) 
+timeStamp <-index(X)[3:4] 
+timeStamp 
+
+X[timeStamp, ] 
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec) 
+timeStamp <-time(S)[3:4] 
+timeStamp 
+
+S[timeStamp, ] 
+```
+
+#### 能否用逻辑操作对多变量时间序列对象进行取子集操作？
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(18), ncol = 3)
+colnames(data) <-LETTERS[1:3]
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+timeStamp <-index(Z) >index(Z)[3]
+timeStamp
+
+Z[timeStamp, ] 
+```
+
+xts: 
+
+```{R}
+X <-xts(data, as.Date(charvec))
+timeStamp <-index(X) >index(X)[3]
+timeStamp
+ 
+X[timeStamp, ] 
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+timeStamp <-time(S)> time(S)[3]
+timeStamp
+ 
+S[timeStamp, ] 
+```
+
+#### 如何提取序列的起始和终止日期？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+c(start(x), end(x))
+```
+
+xts: 
+
+```{R}
+x <-xts(data, as.Date(charvec))
+c(start(x), end(x))
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec)
+c(start(s), end(s))
+```
+
+由于 timeSeries 对象支持不排序的时间戳，因此序列中的首末记录跟正序的时间戳记录未必相同，见下例：
+
+```{r}
+s <-timeSeries(data, sample(charvec))
+c(start(s), end(s))
+
+c(time(s[1, ]), time(s[6, ])) 
+```
+
+### 时间序列对象与类函数 
+
+需要加载的 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+首先，看一下 base 包和 methods 包中关于 groupGeneric 函数的帮助文档。
+
+S3 类基础函数，可以大致分为四类：数学、Ops类、描述类和复数类。
+
+* Math(x, ...) 
+* Ops(e1, e2) 
+* Complex(z) 
+* Summary(..., na.rm = FALSE) 
+
+S4类基础函数可以大概分为八类：
+
+* Arith(e1, e2) 
+* Compare(e1, e2) 
+* Ops(e1, e2) 
+* Logic(e1, e2) 
+* Math(x) 
+* Math2(x, digits) 
+* Summary(x, ..., na.rm = FALSE) 
+* Complex(z) 
+
+从中选择几个与金融时间序列分析相关的函数进行演示。演示的数据对象是多变量时间序列和单变量时间序列。
+
+常规数据 
+
+```{r}
+data <-matrix(runif(18), ncol = 3)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+colnames(Z) <-paste("Z", 1:3, sep = ".")
+Z
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+colnames(X) <-paste("X", 1:3, sep = ".")
+X
+```
+
+timeSeries: 
+
+```{R}
+S <-timeSeries(data, charvec)
+colnames(S) <-paste("S", 1:3, sep = ".")
+S
+```
+
+zoo: 
+
+```{r}
+z <-Z[, 1]
+z
+```
+
+xts: 
+
+```{r}
+x <-X[, 1]
+x
+```
+
+timeSeries: 
+
+```{r}
+s <-S[, 1]
+s
+```
+
+#### 时间序列对象支持哪些四则运算符？
+
+"+", "-", "*", "", "%%", "%/%", "/" .
+
+zoo: 
+
+```{r}
+Z[, 1] + Z[, 2] 
+```
+
+xts: 
+
+```{r}
+X[, 1] + X[, 2] 
+```
+
+timeSeries: 
+
+```{R}
+S[, 1] + S[, 2] 
+```
+
+#### 时间序列对象支持哪些比较运算符？
+
+"==", ">", "<", "!=", "<=", ">=" 
+
+
+zoo: 
+
+```{r}
+Z[, 1]> Z[, 2] 
+```
+
+xts: 
+
+```{R}
+X[, 1] > X[, 2] 
+```
+
+timeSeries: 
+
+```{r}
+S[, 1] > S[, 2] 
+```
+
+#### 时间序列对象支持哪些逻辑运算？
+
+"&", "|" 
+
+zoo: 
+
+```{r}
+(Z[, 1] > Z[, 2]) & (Z[, 2] < Z[, 3]) 
+```
+
+xts: 
+
+```{r}
+(X[, 1]> X[, 2]) & (X[, 2] < X[, 3]) 
+```
+
+timeSeries: 
+
+```{r}
+(S[, 1] > S[, 2]) & (S[, 2] < S[, 3]) 
+```
+
+#### 时间序列对象支持哪些系统操作？
+
+"Arith", "Compare", "Logic" 
+
+#### 时间序列对象支持哪些数学运算？
+
+"abs", "sign", "sqrt", "ceiling", "floor", "trunc", "cummax", "cummin", "cumprod", "cumsum", "log", "log10", "log2", "log1p", "acos", "acosh", "asin", "asinh", "atan", "atanh", "exp", "expm1", "cos", "cosh", "sin", "sinh", "tan", "tanh", "gamma", "lgamma", "digamma", "trigamma" 
+
+zoo: 
+
+```{R}
+log(abs(Z)) 
+```
+
+xts: 
+
+```{r}
+log(abs(X)) 
+```
+
+timeSeries: 
+
+```{R}
+log(abs(S)) 
+```
+
+#### 时间序列对象支持哪些 Math2 类运算？
+
+"round", "signif" 
+
+zoo: 
+
+```{r}
+round(Z, 2) 
+
+signif(Z, 2) 
+```
+
+xts: 
+
+```{r}
+round(X, 2) 
+
+signif(X, 2) 
+```
+
+timeSeries: 
+
+```{r}
+round(S, 2) 
+
+signif(S, 2) 
+```
+
+#### 时间序列对象支持哪些“统计描述”运算？
+
+"max", "min", "range", "prod", "sum", "any", "all" 
+
+zoo: 
+
+```{R}
+max(z) 
+
+min(z) 
+
+range(z) 
+
+prod(z) 
+
+sum(z) 
+```
+
+xts: 
+
+```{r}
+max(x) 
+ 
+min(x) 
+
+range(x) 
+
+prod(x) 
+
+sum(x) 
+```
+
+timeSeries: 
+
+```{r}
+max(s) 
+
+min(s) 
+
+range(s) 
+
+prod(s) 
+
+sum(s) 
+```
+
+#### 时间序列对象支持哪些复数运算？
+
+"Arg", "Conj", "Im", "Mod", "Re" 
+
+```{r}
+u <-c(0, 2i)
+u
+```
+
+zoo: 
+
+```{r}
+Arg(z + u) 
+
+Conj(z + u) 
+
+Im(z + u) 
+
+Mod(z + u) 
+
+Re(z + u) 
+```
+
+xts: 
+
+```{r}
+Arg(x + u) 
+
+Conj(x + u) 
+
+Im(x + u) 
+
+Mod(x + u) 
+
+Re(x + u) 
+```
+
+timeSeries: 
+
+```{r}
+Arg(s + u) 
+
+Conj(s + u) 
+
+Im(s + u) 
+
+Mod(s + u) 
+
+Re(s + u) 
+```
+
+### 缺失值处理 
+
+需要加载的 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何在单变量时间序列中忽略缺失值？
+
+注意，这里的忽略有多种含义。其最基本的含义是将 NA 从数据集中删除。更广泛的还意味着对缺失值进行替代或者差值处理。先看其基本含义。
+
+常规数据 
+
+```{R}
+data <-rnorm(9)
+data[c(1, 7)] <-NA
+data
+
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+na.omit(z)
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec))
+na.omit(x)
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec)
+na.omit(s)
+```
+
+#### 如何在多变量时间序列中忽略缺失值?
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(7*3), ncol = 3)
+data[1,1] <-NA
+data[3,1:2] <-NA
+data[4,2] <-NA
+data
+
+charvec <-paste("2009-0", 1:7, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+na.omit(Z)
+```
+
+xts: 
+
+```{R}
+X <-xts(data, as.Date(charvec))
+na.omit(X)
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec)
+na.omit(s)
+```
+
+#### 如何在一个多变量时间序列对象中, 使用 0, 均值或中位值等来替换缺失值?
+
+常规数据 
+
+```{r}
+data <-rnorm(9)
+data[c(1, 7)] <-NA
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+
+处理金融时间序列数据时, 人们会用一个常值, 比如 0, 均值或者中位值来替换缺失值。
+
+zoo: 
+
+用 0 来取代一个金融收益序列的缺失值。
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+z[is.na(z)] <-0
+z
+```
+
+或者用样本均值来替换一个金融收益序列的缺失值。
+
+```{R}
+z <-zoo(data, as.Date(charvec))
+z[is.na(z)] <-mean(z, na.rm = TRUE)
+z
+```
+
+或者用一个均值的稳健估计, 即中位数，来替换一个金融收益序列的缺失值。
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+z[is.na(z)] <-median(z, na.rm = TRUE)
+z
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec))
+x[is.na(x)] <-0
+x
+
+x <-xts(data, as.Date(charvec))
+x[is.na(x)] <-mean(x, na.rm = TRUE)
+x
+
+x <-xts(data, as.Date(charvec))
+x[is.na(x)] <-median(x, na.rm = TRUE)
+x
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec)
+s[is.na(s)] <-0
+s
+
+s <-timeSeries(data, charvec)
+s[is.na(s)] <-mean(s, na.rm = TRUE)
+s
+
+s <-timeSeries(data, charvec)
+s[is.na(s)] <-median(s, na.rm = TRUE)
+s
+```
+
+#### 如何替换多变量时间序列对象中的缺失值?
+
+处理金融时间序列数据时, 人们会用一个常值, 比如 0, 均值或者中位值来替换缺失值。
+
+常规数据 
+
+```{r}
+data <-matrix(rnorm(7*3), ncol = 3)
+data[1,1] <-NA
+data[3,1:2] <-NA
+data[4,2] <-NA
+data
+
+charvec <-paste("2009-0", 1:7, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+Z
+
+Z[is.na(Z)] <-0
+Z
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+X
+
+X[is.na(X)] <-0
+X
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, as.Date(charvec))
+S
+
+S[is.na(S)] <-0
+S
+```
+
+#### 如何对单变量时间序列对象中的缺失值进行插值处理？
+
+在 zoo 包和 xts 包中, na.approx 和 na.spline 函数能完成这样的操作。timeSeries 对象可以通过选择 na.omit 函数中的 method 参数完成缺失值的插值操作。
+
+常规数据 
+
+```{r}
+data <-1:9
+data[c(1, 7)] <-NA
+data
+
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+使用 approx()函数进行线性插值。
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+z
+
+na.approx(z) 
+```
+
+使用 spline 函数进行样条插值。
+
+```{r}
+z 
+
+na.spline(z) 
+```
+
+末次观测值结转法
+
+```{r}
+z 
+
+na.locf(z) 
+```
+
+裁掉首尾缺失值。
+
+```{r}
+z 
+
+na.trim(z, sides = "left") 
+```
+
+xts: 
+
+```{r}
+xts <-xts(data, as.Date(charvec))
+xts
+
+na.approx(xts) 
+
+x 
+ 
+na.spline(x) 
+```
+
+末次观测值结转法
+
+```{r}
+x 
+
+na.locf(x) 
+```
+
+裁掉首尾缺失值
+
+```{r}
+x 
+
+na.trim(x, sides = "left") 
+```
+
+timeSeries: 
+
+timeSeries 对象的插值处理可以由函数 approx 处理，该函数采用的是线性插值方法。在时间序列的首末位置对 NA 进行插值或者移除操作。
+
+```{R}
+s <-timeSeries(data, charvec)
+na.omit(s, "ir")
+```
+
+用 0 替换，时间序列首末位置的缺失值。
+
+```{r}
+s <-timeSeries(data, charvec)
+na.omit(s, "iz")
+```
+
+对时间序列首末位置的缺失值进行插值和外推处理。
+
+```{r}
+s <-timeSeries(data, charvec)
+na.omit(s, "ie")
+```
+
+通过设置参数 interp=c("before", "linear", "after")，可以选择插值方式。before 选项，
+末次观测值结转法，after 选项，下次观测结转法。
+
+```{r}
+sn <-na.omit(s, method = "iz", interp = "before")
+sn[is.na(s)]
+
+sn <-na.omit(s, method = "iz", interp = "linear")
+sn[is.na(s)]
+
+sn <-na.omit(s, method = "iz", interp = "after")
+sn[is.na(s)]
+```
+
+请注意：通过设定 approx 函数中的默认选项可以调整相应的线性插值操作。
+
+```{r}
+args(approx) 
+```
+
+可以对一个单变量时间序列对象应用 na.contiguous 函数吗？
+
+na.contiguous 函数将返回时间序列对象中最长的那个连续无缺失值的序列片段，如果对象中有两个等长的序列片段，函数将返回最前面那个。
+
+常规数据 
+
+```{r}
+data <-rnorm(12)
+data[c(3, 8)] = NA
+data
+
+charvec <-as.character(timeCalendar(2009))
+charvec
+```
+
+ts: 
+
+```{r}
+t <-ts(data, start = 2009, frequency = 12)
+t
+
+na.contiguous(t) 
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec)) 
+z 
+
+na.contiguous(z) 
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec))
+x
+
+na.contiguous(x) 
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec)
+s
+
+na.contiguous(s) 
+```
+
+### 时间序列对象的查看与绘图
+
+#### 时间序列对象的显示 
+
+需加载的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何查看时间序列对象？
+
+时间序列的对象在 R 中的显示方式与其它类型数据的显示一样，键入数据名可直接显示。
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+xts:
+
+```{r}
+zoo(data, as.Date(charvec)) 
+```
+
+xts: 
+
+```{r}
+xts(data, as.Date(charvec)) 
+```
+
+timeSeries: 
+
+```{r}
+timeSeries(data, charvec) 
+```
+
+当然，可以用 print 函数在屏幕上打印时间序列对象。
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+print(zoo(data, as.Date(charvec))) 
+```
+
+xts: 
+
+```{r}
+print(xts(data, as.Date(charvec))) 
+```
+
+timeSeries: 
+
+```{R}
+print(timeSeries(data, charvec)) 
+```
+
+鉴于 timeSeries 对象属于 S4 类，因此也可以用 show 函数来打印 timeSeries 对象。
+
+```{R}
+show(timeSeries(data, charvec)) 
+```
+
+#### 如何控制单变量时间序列对象的显示形式？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+使用 print 函数打印单变量 zoo 类型时间序列对象时，数据一般以水平格式显示。
+
+```{r}
+print(zoo(data, as.Date(charvec))) 
+```
+
+xts: 
+
+用 print 函数打印单变量 xts 类型时间序列对象时，数据一般以竖直格式显示。
+
+```{r}
+print(xts(data, as.Date(charvec))) 
+```
+
+当然，也可以将 zoo 对象以竖直格式显示或者将 xts 对象以水平格式显示。
+
+```{r}
+print(as.zoo(xts(data, as.Date(charvec)))) 
+
+print(as.xts(xts(data, as.Date(charvec)))) 
+```
+
+timeSeries: 
+
+用 print 函数打印 timeSeries 对象时，print 函数提供了 style 参数来调整 timeSeries 对象的显示格式。对于单变量 timeSeries 类型的时间序列数据，print 的默认为竖直显示。
+
+```{r}
+s <-timeSeries(data, charvec)
+print(s)
+```
+
+当然，也可以以水平格式显示。
+
+```{r}
+print(s, style = "h") 
+```
+
+#### 除了用 ISO（国际标准格式）日期/时间格式之外，还能用其它格式来显示时间序列对象吗？
+
+常规数据 
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+目前没有。
+
+xts: 
+
+目前没有。
+
+timeSeries: 
+
+用 print 函数打印 timeSeries 对象时，print 函数提供了一个 format 参数来调整 timeSeries 对象的显示类型。
+
+```{r}
+s <-timeSeries(pi, "2009-05-08 19:26:22", units = "s")
+print(s)
+
+print(s, format = "%m/%d/%y %H:%M") 
+
+print(s, format = "%m/%d/%y %A") 
+
+print(s, format = "DayNo %j Hour: %H") 
+```
+
+第一个例子使用的是默认 ISO 格式，第二例子是包含星期全名的 month-day-year 格式，而最后一个例子展示了此日期在一年中的位置，且展示了具体时间中的小时。时间序列对象能按照 R 中的 ts 格式显示吗？
+
+zoo: 
+
+zoo 类型的等间隔时间序列对象可以以 ts 格式显示，非等间隔不能。
+
+xts: 
+
+目前没有。
+
+timeSeries: 
+
+print 函数打印 timeSeries 对象时提供的 style 参数里面有 ts 选项。例如，对于一个月度记录的时间序列数据：
+
+```{r}
+data <-1:6
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+s <-timeSeries(data, charvec)
+print(s, style = "ts")
+```
+
+对于一个季度记录的时间序列数据
+
+```{r}
+data <-1:4
+charvec <-paste("2009-", c("03", "06", "09", "12"), "-01", sep = "")
+s <-timeSeries(data, charvec)
+print(s, style = "ts", by = "quarter")
+```
+
+#### 如何调整时间序列对象的时区设置？
+
+zoo: 
+
+目前，无法直接做到。
+
+xts: 
+
+目前，无法直接做到。
+
+timeSeries: 
+
+print 函数用来打印 timeSeries 对象时提供了一个 FinCenter 参数来设置时间序列对象的时区信息。针对一个月度时间序列数据：
+
+```{r}
+data <-rnorm(6)
+charvec <-paste("2009-0", 1:6, "-01 16:00:00", sep = "")
+s <-timeSeries(data, charvec, zone = "Chicago", FinCenter = "Zurich")
+print(s, FinCenter = "Chicago")
+
+print(s, FinCenter = "Zurich") 
+
+print(s, FinCenter = "Tokyo") 
+```
+
+### 时间序列对象的图形展示 
+
+需要加载的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+#### 如何用 plot 函数绘制单变量时间序列数据？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-runif(6)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+args(plot.zoo) 
+
+z <-zoo(data, as.POSIXct(charvec, tz = "GMT"))
+plot(z)
+```
+
+注意 X 轴的刻度上没有标明年份信息。
+
+xts: 
+
+```{r}
+args(plot.xts) 
+
+x <-xts(data, as.POSIXct(charvec, tz = "GMT"))
+plot(x)
+```
+
+timeSeries: 
+
+timeSeries 对象可以用 S4 类型的绘图方法来绘制。
+
+```{R}
+s <-timeSeries(data, charvec)
+plot(s)
+```
+
+#### 如何用 plot 函数绘制多变量时间序列数据？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-matrix(runif(12), ncol = 2)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.POSIXct(charvec, tz = "GMT"))
+plot(Z)
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.POSIXct(charvec, tz = "GMT"))
+plot(X)
+```
+
+xts 对象不支持将多变量时间序列数据绘制在一张图形上。
+
+timeSeries: 
+
+```{R}
+S <-timeSeries(data, charvec)
+plot(S)
+```
+
+#### 如何用 plot 函数将多变量时间序列数据绘制在同一张图上？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-matrix(runif(18), ncol = 3)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.POSIXct(charvec, tz = "GMT"))
+plot(Z, plot.type = "single")
+```
+
+xts: 
+
+xts 对象不支持将多变量时间序列数据绘制在一张图形上。
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, as.POSIXct(charvec, FinCenter = "GMT"))
+plot(S, plot.type = "single")
+```
+
+#### 如何在已有图形上添加直线？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data1 <-rnorm(9)
+data2 <-rnorm(9, sd = 0.2)
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z1 <-zoo(data1, as.POSIXct(charvec, tz = "GMT"))
+z2 <-zoo(data2, as.POSIXct(charvec, tz = "GMT"))
+plot(z1)
+lines(z2, col = 2)
+```
+
+timeSeries: 
+
+```{r}
+s1 <-timeSeries(data1, charvec, FinCenter = "GMT")
+s2 <-timeSeries(data2, charvec, FinCenter = "GMT")
+plot(s1)
+lines(s2, col = 2)
+```
+
+#### 如何在现有图形中添加点？
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-rnorm(9)
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.POSIXct(charvec, tz = "GMT"))
+plot(z)
+points(z, col = 2, pch = 19)
+```
+
+timeSeries: 
+
+```{R}
+s <-timeSeries(data, charvec, FinCenter = "GMT")
+plot(s)
+points(s, col = 2, pch = 19)
+```
+
+#### 能在已有的时间序列图形上使用 abline 函数添加直线吗？
+
+常规数据 
+
+```{R}
+set.seed(1953)
+data <-rnorm(9)
+charvec <-paste("2009-0", 1:9, "-01", sep = "")
+charvec
+```
+zoo: 
+
+```{R}
+z <-zoo(data, as.POSIXct(charvec, tz = "GMT"))
+plot(z)
+abline(v = index(z), col = "darkgrey", lty = 3)
+```
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, charvec, FinCenter = "GMT")
+plot(s)
+abline(v = time(s), col = "darkgrey", lty = 3)
+```
+
+## 使用 R 函数
+
+### 金融时间序列对象与 base 包中的函数 
+
+所需的 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+下面介绍几个与金融时间序列分析关系紧密的 R 函数，这些函数的分析对象即可以是多元时间序列也可以是单边量时间序列。
+
+```{r}
+set.seed(1953)
+data <-matrix(runif(18), ncol = 3)
+charvec <-rev(paste("2009-0", 1:6, "-01", sep = ""))
+charvec
+```
+
+zoo: 
+
+```{R}
+Z <-zoo(data, as.Date(charvec))
+colnames(Z) = paste("Z", 1:3, sep = ".")
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+colnames(X) = paste("X", 1:3, sep = ".")
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+colnames(S) = paste("S", 1:3, sep = ".")
+```
+
+zoo: 
+
+```{r}
+z <-Z[, 1] 
+```
+
+xts: 
+
+```{R}
+x <-X[, 1] 
+```
+
+timeSeries: 
+
+```{R}
+s <-S[, 1] 
+```
+
+#### 可以对金融时间序列对象应用 apply 函数吗？如何应用？
+
+zoo: 
+
+```{R}
+apply(Z, 2, mean) 
+```
+
+xts: 
+
+```{R}
+apply(X, 2, mean) 
+```
+
+timeSeries: 
+
+```{R}
+apply(S, 2, mean) 
+```
+
+#### 可以对金融时间序列对象应用 attach 函数吗？
+
+应用 attach 函数之后，R 的数据库被纳入到工作区，如此一来，只需在 R 中键入数据集的名称，便可调用该数据集。attach函数的对象只能是lists,data frames和environments。因此，attach 函数针对金融时间序列对象不可用。
+
+zoo: 
+
+```{r eval=FALSE}
+print(try(attach(Z))) 
+```
+
+xts: 
+
+```{R eval=FALSE}
+print(try(attach(X))) 
+```
+
+timeSeries: 
+
+```{r}
+attach(S)
+colnames(S)
+S
+```
+
+#### 能对金融时间序列对象应用 diff 函数么？
+
+base 包中，diff 函数的作用是返回对象的差分序列。该函数可用于金融时间序列分析对象。
+
+zoo: 
+
+```{r}
+diff(Z) 
+
+diff(z) 
+```
+
+xts: 
+
+```{R}
+diff(X) 
+
+diff(x) 
+```
+
+timeSeries: 
+
+```{r}
+diff(S) 
+
+diff(s) 
+
+```
+
+#### 能对金融时间序列对象应用 dim 函数么？
+
+dim 函数用于返回对象的维度。该函数适用于金融时间序列对象。
+
+zoo: 
+
+```{r}
+dim(Z) 
+
+dim(z) 
+```
+
+xts: 
+
+```{r}
+dim(X) 
+
+dim(x) 
+```
+
+timeSeries: 
+
+```{r}
+dim(S) 
+
+dim(s) 
+```
+
+#### 能对金融时间序列对象应用 rank 函数吗？rank函数返回对象中每个元素的顺序位置。仅适用于 timeSeries类型的金融时间序列对象。
+
+zoo
+
+```{r eval=FALSE}
+print(try(rank(Z))) 
+
+print(try(rank(z))) 
+```
+
+xts: 
+
+```{r eval=FALSE}
+print(try(rank(X))) 
+
+print(try(rank(x))) 
+```
+
+timeSeries: 
+
+```{R}
+rank(S) 
+
+rank(s) 
+```
+
+#### 能对金融时间序列对象应用 rev 函数么？
+
+rev 函数用于返回对象的逆排列。
+
+zoo: 
+
+```{r}
+print(try(rev(Z))) 
+
+rev(z) 
+```
+
+xts: 
+
+```{r}
+print(try(rev(X))) 
+
+rev(x) 
+```
+
+timeSeries: 
+
+```{R}
+rev(S) 
+
+rev(s) 
+```
+
+#### 能对金融时间序列对象应用 sample 函数吗？
+
+sample 函数用于从一组数据中进行返回或者不返回抽样。
+
+zoo: 
+
+```{R}
+print(try(sample(Z))) 
+
+sample(z) 
+```
+
+xts: 
+
+```{R}
+print(try(sample(X))) 
+
+sample(x) 
+```
+
+timeSeries: 
+
+```{r}
+sample(S) 
+
+sample(s) 
+```
+
+#### 能对金融时间序列对象应用 scale 函数吗？若能，其实如何操作的？
+
+scale 函数的作用是将对象进行中心化/标准化。
+
+zoo: 
+
+```{r}
+scale(Z) 
+
+scale(z) 
+```
+
+xts: 
+
+```{r}
+scale(X) 
+
+scale(x) 
+```
+
+timeSeries: 
+
+```{r}
+scale(S) 
+
+scale(s) 
+```
+
+#### 能对金融时间序列对象应用 sort 函数吗？
+
+sort 函数的作用是是将对象进行自然顺序排列或者逆序排列。具体可以参考 order 函数。
+
+zoo: 
+
+```{r eval=FALSE}
+print(try(sort(Z))) 
+ 
+sort(z) 
+```
+
+xts: 
+
+```{r}
+print(try(sort(X))) 
+
+sort(x) 
+```
+
+timeSeries: 
+
+```{r}
+sort(S) 
+
+sort(s) 
+```
+
+#### 能对金融时间序列对象应用 start 和 end 函数吗?
+
+start函数和end函数用于返回对象的头部数据和尾部数据。针对金融时间序列对象时，其返回的是时间戳的头部部分和尾部部分。
+
+zoo: 
+
+```{r}
+start(Z); end(Z) 
+
+start(z); end(z) 
+```
+
+xts: 
+
+```{R}
+start(X); end(X) 
+
+start(x); end(x) 
+```
+
+timeSeries: 
+
+```{r}
+start(S); end(S) 
+
+start(s); end(s) 
+```
+
+### 金融时间序列对象与 stats 包中的函数 
+
+所需 R 包
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+下面从 stats 包中选取一些与金融时间序列分析相关的函数进行介绍。
+
+常规数据 
+
+测试数据为多元金融时间序列和单变量金融时间序列对象。
+
+```{r}
+set.seed(1953)
+data <-matrix(runif(18), ncol = 3)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+colnames(Z) = paste("Z", 1:3, sep = ".")
+Z
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+colnames(X) = paste("X", 1:3, sep = ".")
+X
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+colnames(S) = paste("S", 1:3, sep = ".")
+S
+```
+
+zoo: 
+
+```{r}
+z <-Z[, 1]
+z
+```
+
+xts: 
+
+```{r}
+x <-X[, 1]
+x
+```
+
+timeSeries: 
+
+```{R}
+s <-S[, 1]
+s
+```
+
+#### 能对金融时间序列对象应用 arima 函数么？
+
+arima 函数的作用是对单变量时间序列对象建立 arima 模型。
+
+zoo: 
+
+```{r}
+arima(z) 
+```
+
+xts: 
+
+```{r}
+arima(x) 
+```
+
+timeSeries: 
+
+```{r}
+arima(s) 
+```
+
+#### 能对金融时间序列对象应用 acf 函数吗？
+
+acf 函数用以返回对象的自协方差和自相关序列。pacf函数用以返回对象的偏自相关序列。ccf 函数用以返回互相关序列和互协方差序列。
+
+zoo: 
+
+```{r eval=FALSE}
+print(try(acf(z)))
+```
+
+xts: 
+
+```{r}
+print(try(acf(x))) 
+```
+
+timeSeries: 
+
+```{r}
+print(acf(s)) 
+```
+
+#### 能对金融时间序列对象应用 cov 函数吗？
+
+var 函数、cov 函数和 cor 函数用以返回对象 x 的方差、协方差或者 x，y 的协相关系数。
+
+如果 x,y 是矩阵形式，其返回结果为对象 x 的列于对象 y 的列的协方差或者协相关系数。应用于 zoo、xts 和 timeSeries 对象是表现如下：
+
+zoo: 
+
+```{R}
+
+var(z) 
+
+var(Z) 
+
+cov(Z) 
+
+cor(Z) 
+```
+
+xts: 
+
+```{r}
+
+var(x) 
+
+var(X) 
+
+cov(X) 
+
+cor(X) 
+```
+
+timeSeries: 
+
+```{r}
+var(s) 
+
+var(S) 
+
+cov(S) 
+
+cor(S) 
+```
+
+#### 能对金融时间序列对象应用 dist 函数吗？
+
+dist 函数用于返回对象的行对象的距离矩阵。
+
+zoo: 
+
+```{R}
+dist(Z) 
+
+
+dist(t(Z)) 
+```
+
+xts: 
+
+```{r}
+dist(X) 
+
+dist(t(X)) 
+```
+
+timeSeries: 
+
+```{r}
+dist(S) 
+
+dist(t(S)) 
+```
+
+#### 能对金融时间序列对象应用 dnorm 对象吗？
+
+dnorm 函数用于返回对象所对应的正态分布的密度数据。相关参数分别由 mean 和 sd 指定。
+
+zoo: 
+
+```{R}
+dnorm(z, mean = 0, sd = 1) 
+```
+
+xts: 
+
+```{r}
+dnorm(x, mean = 0, sd = 1) 
+```
+
+timeSeries: 
+
+```{r}
+dnorm(s, mean = 0, sd = 1) 
+```
+
+#### 能对金融时间序列对象应用 filter 函数吗？
+
+filter 函数的作用是返回单变量时间序列对象的线性滤波序列，或者返回多变量时间序列对象的各变量的线性滤波序列。
+
+zoo: 
+
+```{R eval=FALSE}
+print(try(filter(z))) 
+```
+
+xts: 
+
+```{r eval=FALSE}
+print(try(filter(x))) 
+```
+
+timeSeries: 
+
+```{R}
+filter(s, rep(1,3)) 
+```
+
+#### 能对金融时间序列对象应用 fivenum 函数吗？
+
+fivenum 用于返回 Tukey 五数数据（最小值、下 1/4 分位数、中位数、3/4 分位数、最大值）。
+
+zoo: 
+
+```{r}
+fivenum(z) 
+```
+
+xts: 
+
+```{r}
+fivenum(x) 
+```
+
+timeSeries: 
+
+```{r}
+fivenum(s) 
+```
+
+#### 能对金融时间序列对象应用 hist 函数吗？
+
+hist 函数用以返回对象的直方图数据，如果参数 plot=TRUE，hist 函数返回的 histogram 对象将被 plot.histogram()函数绘制为直方图。
+
+zoo: 
+
+```{R}
+hist(z)$density 
+```
+
+xts: 
+
+```{r}
+hist(x)$density 
+```
+
+timeSeries: 
+
+```{r}
+hist(s)$density 
+```
+
+#### 能对金融时间序列对象应用 lag 函数吗？
+
+lag 函数用以返回时间序列的滞后序列。
+
+zoo: 
+
+```{R}
+lag(Z) 
+```
+
+xts: 
+
+```{r}
+lag(X) 
+```
+
+timeSeries: 
+
+```{R}
+lag(S) 
+```
+
+#### 能对金融时间序列对象应用 lm 函数吗？
+
+lm 函数用以拟合线性模型。可以用来进行回归、单层次方差分析和协方差分析（而 aov 函数提供了一个更方面途径来做这件事）。
+
+zoo: 
+
+```{r}
+fit <-lm( Z.1 ~ Z.2 + Z.3, data = Z)
+fit
+
+resid(fit) 
+```
+
+xts: 
+
+```{r}
+fit <-lm( X.1 ~ X.2 + X.3, data = X)
+fit
+
+resid(fit) 
+```
+
+timeSeries: 
+
+```{r}
+fit <-lm( S.1 ~ S.2 + S.3, data = S)
+fit
+
+resid(fit) 
+```
+
+#### 能对金融时间序列对象应用 lowess()函数吗？
+
+lowess 函数的作用是基于局部加权多项式回归对对象进行 lowess 平滑。
+
+zoo: 
+
+```{r}
+lowess(z) 
+```
+
+xts: 
+
+```{r}
+lowess(x) 
+```
+
+timeSeries: 
+
+```{r}
+lowess(s) 
+```
+
+#### 能对金融时间序列对象应用 mad 函数吗？
+
+mad 函数用以计算中位数绝对偏差，即上中位数和下中位数从中位数的偏离程度。
+
+zoo: 
+
+```{r}
+mad(z) 
+```
+
+xts: 
+
+```{r}
+mad(x) 
+```
+
+timeSeries: 
+
+```{r}
+mad(s) 
+```
+
+#### 能对金融时间序列对象应用 median 函数吗？
+
+median 函数的作用是返回简单中位数。
+
+zoo: 
+
+```{R}
+median(x) 
+```
+
+xts: 
+
+```{r}
+median(x) 
+```
+
+timeSeries: 
+
+```{r}
+median(s) 
+```
+
+#### 能对金融时间序列对象应用 qqnorm 函数吗？
+
+qqnorm 函数用以绘制对象的 QQ 图；qqline 函数用以添加 QQ 线。
+
+zoo: 
+
+```{r}
+print(qqnorm(z)) 
+```
+
+xts: 
+
+```{r}
+print(qqnorm(x)) 
+```
+
+timeSeries: 
+
+```{r}
+print(qqnorm(s)) 
+```
+
+#### 能对金融时间序列对象应用 smooth 函数吗？
+
+smooth 函数用以进行中位数平滑，该函数调用 Tukey 平滑器，如 3RS3R,3RSS,3R 等。
+
+zoo: 
+
+```{r}
+smooth(z) 
+```
+
+xts: 
+
+```{R}
+smooth(x) 
+```
+
+timeSeries: 
+
+```{R}
+smooth(s) 
+```
+
+#### 能对金融时间序列对象应用 spectrum 函数吗？
+
+spectrum 函数用以返回时间序列对象的谱密度。
+
+zoo: 
+
+```{R}
+print(try(spectrum(z)[1:2])) 
+```
+
+xts: 
+
+```{R}
+print(spectrum(x)[1:2]) 
+```
+
+timeSeries: 
+
+```{R}
+print(spectrum(s)[1:2]) 
+```
+
+### 金融时间序列对象与 utils 包中的函数 
+
+所需 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+选取 utils 包中与金融时间序列对象分析相关的函数进行介绍。
+
+常规数据 
+
+```{r}
+set.seed(1953)
+data <-matrix(runif(18), ncol = 3)
+charvec <-paste("2009-0", 1:6, "-01", sep = "")
+charvec
+```
+
+zoo: 
+
+```{r}
+Z <-zoo(data, as.Date(charvec))
+colnames(Z) = paste("Z", 1:3, sep = ".")
+Z
+```
+
+xts: 
+
+```{r}
+X <-xts(data, as.Date(charvec))
+colnames(X) = paste("X", 1:3, sep = ".")
+X
+```
+
+timeSeries: 
+
+```{r}
+S <-timeSeries(data, charvec)
+colnames(S) = paste("S", 1:3, sep = ".")
+S
+```
+
+zoo: 
+
+```{r}
+z <-Z[, 1]
+z
+```
+
+xts: 
+
+```{r}
+x <-X[, 1]
+x
+```
+
+timeSeries: 
+
+```{r}
+s <-S[, 1]
+s
+```
+
+#### 能对金融时间序列对象应用 head 函数吗？
+
+函数用于返回 vector、matrix、table、data frame 对象的头部部分和尾部部分。
+
+ts: 
+
+```{r}
+ts <-rnorm(ts(rnorm(12))) 
+ts
+head(ts) 
+```
+
+对于规则的 ts 类型时间序列，属性信息会丢失。
+
+zoo: 
+
+```{R}
+head(Z, 3) 
+
+head(z, 3) 
+```
+xts: 
+
+```{R}
+head(X, 3) 
+
+head(x, 3) 
+```
+
+timeSeries: 
+
+```{r}
+head(S, 3) 
+
+head(s, 3) 
+```
+
+## 性能测试
+
+### 创建时间序列对象的性能测试 
+
+所需 R 包。
+
+```{R}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+定义一个 systemTime 函数来度量各种操作的效率。
+
+```{R}
+systemTime <-function(expr, gcFirst = TRUE, n = 20) {
+time <-sapply(integer(n), eval.parent(substitute(function(...)
+system.time(expr, gcFirst = gcFirst))))
+structure(apply(time, 1, median), class = "proc_time")
+}
+```
+
+基于字符型时间戳，创建一个时期跨度为 100 年，列数为 5 的日时间序列对象需要多长时间？
+
+R 会从 ASCII 格式，网页，或者 xls 与 csv 文件中读入时间序列数据后，通常将数据存储为字符串。
+
+为了将字符串转化为 zoo、xts 或者 timeSeries 对象，需先将时间戳转化为合适的标签。考虑一个时期跨度为 100 年、共 35000 条记录的日时间序列数据。
+
+常规数据 
+
+```{R}
+charvec <-format(seq(from = as.Date("1901-01-01"),
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+```
+
+zoo: 
+
+```{R}
+systemTime(zoo(data, charvec)) 
+```
+
+xts: 
+
+```{r eval=FALSE}
+print(try(xts(data, charvec))) 
+```
+
+timeSeries: 
+
+```{r}
+systemTime(timeSeries(data, charvec)) 
+```
+
+#### 基于日期型时间戳，创建一个时期跨度为 100 年、列数为 5 的日时间序列对
+象需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-as.Date(charvec)
+class(index)
+```
+
+zoo: 
+
+```{r}
+systemTime(zoo(data, index)) 
+```
+
+这是基于 zoo 包创建时间序列对象的基本方法。
+
+xts: 
+
+```{r}
+systemTime(xts(data, index)) 
+```
+
+这是基于 xts 包创建时间序列对象的基本做法。
+
+timeSeries: 
+
+```{r}
+systemTime(timeSeries(data, index)) 
+```
+
+鉴于金融时间序列分析的对象大都是 timeDate 对象，下面的操作效率可以作为一个效率基准。
+
+#### 基于 GMT POSIXct 时间戳，创建一个时期跨度为 100 年、列数为 5 的日时间序列对象需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-as.POSIXct(charvec, tz = "GMT")
+class(index)
+```
+
+zoo: 
+
+```{R}
+systemTime(zoo(data, index)) 
+```
+
+xts: 
+
+```{R}
+systemTime(xts(data, index)) 
+```
+
+timeSeries: 
+
+```{R}
+systemTime(timeSeries(data, index)) 
+```
+
+#### 基于非 GMT POSIXct 时间戳，创建一个时期跨度为 100 年、列数为 5 的日时间序列对象需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+#index <-as.POSIXct(charvec, tz = "CET")
+#class(index)
+```
+
+zoo: 
+
+```{r}
+systemTime(zoo(data, index)) 
+```
+
+xts: 
+
+```{r}
+systemTime(xts(data, index)) 
+```
+
+timeSeries: 
+
+```{R}
+systemTime(timeSeries(data, index)) 
+```
+
+#### 基于 timeDate 型时间戳，创建一个时期跨度为 100 年、列数为 5 的日时间序列对象需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-timeDate(charvec)
+class(index)
+```
+
+zoo: 
+
+```{r}
+systemTime(zoo(data, index)) 
+```
+
+xts: 
+
+```{R}
+systemTime(xts(data, index)) 
+```
+
+timeSeries: 
+
+```{r}
+systemTime(timeSeries(data, index)) 
+```
+
+### 对时间序列取子集的操作性能 
+
+所需 R 包。
+
+```{r}
+library(zoo) 
+library(xts) 
+library(timeSeries) 
+```
+
+定义一个 systemTime 函数来度量各种操作性能。
+
+```{r}
+systemTime <-function(expr, gcFirst = TRUE, n = 20) {
+time <-sapply(integer(n), eval.parent(substitute(function(...)
+system.time(expr, gcFirst = gcFirst))))
+structure(apply(time, 1, median), class = "proc_time")
+}
+```
+
+#### 基于整数，对时期跨度为 100 年，列数为 5的日时间序列对象进行取子集操作需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-charvec
+length <-floor(length(charvec)/2)
+subset <-sample(charvec)[1:length]
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, as.Date(charvec))
+systemTime(z[subset, ])
+```
+
+xts: 
+
+```{r}
+x <-xts(data, as.Date(charvec)) 
+```
+
+该操作耗时巨大！
+
+timeSeries: 
+
+```{R}
+s <-timeSeries(data, charvec)
+systemTime(s[subset, ])
+```
+
+#### 基于 Date 对象，对时期跨度为 100 年，列数为 5 的日时间序列对象进行取子集操作需要多长时间？
+
+常规数据 
+
+```{r}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-as.Date(charvec)
+length <-floor(length(charvec)/2)
+subset <-as.Date(sample(charvec)[1:length])
+```
+
+zoo: 
+
+```{R}
+z <-zoo(data, index)
+systemTime(z[subset, ])
+```
+
+xts: 
+
+```{R}
+x <-xts(data, index) 
+```
+
+该操作耗时巨大。
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, index)
+systemTime(s[subset, ])
+```
+
+#### 基于 Date 对象，对一个时期跨度为 100 年，列数为 5 的 GMT POSIXct 格式的日时间序列进行取子集操作需要多长时间？
+
+常规数据
+
+```{R}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day")) 
+data <-matrix(rnorm(length(charvec)*5), ncol = 5) 
+index <-as.POSIXct(charvec, tz = "GMT") 
+length <-floor(length(charvec)/2) 
+subset <-as.POSIXct(sample(charvec)[1:length], tz = "GMT") 
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, index)
+systemTime(z[subset, ])
+```
+
+xts: 
+
+```{r}
+x <-xts(data, index) 
+```
+
+该操作耗时巨大！
+
+timeSeries:
+
+```{r}
+s <-timeSeries(data, index) 
+systemTime(s[subset, ]) 
+```
+
+#### 基于 Date 对象，对一个时期跨度为 100 年，列数为 5 的非 GMT POSIXct 格式的日时间序列进行取子集操作需要多长时间？
+
+常规数据 
+
+```{R}
+charvec <-format(seq(from = as.Date("1901-01-01"), 
+to = as.Date("1999-12-31"), by = "day")) 
+data <-matrix(rnorm(length(charvec)*5), ncol = 5) 
+index <-as.POSIXct(charvec, format="%Y-%m-%d",tz = "CET") 
+
+length <-floor(length(charvec)/2) 
+subset <-as.POSIXct(sample(charvec)[1:length], tz = "GMT") 
+```
+
+zoo: 
+
+```{r}
+z <-zoo(data, index)
+systemTime(z[subset, ])
+```
+
+xts: 
+
+```{R eval=FALSE}
+x <-xts(data, order.by=index) 
+```
+
+该操作耗时巨大！
+
+timeSeries: 
+
+```{r}
+s <-timeSeries(data, index) 
+```
+
+这里有问题。
+
+#### 基于 Date 对象，对一个时期跨度为 100 年，列数为 5 的以 GMT timeDate 对象形式存储的日时间序列进行取子集操作需要多长时间？
+
+常规数据 
+
+```{R}
+charvec <-format(seq(from = as.Date("1901-01-01"), to = as.Date("1999-12-31"), by = "day"))
+data <-matrix(rnorm(length(charvec)*5), ncol = 5)
+index <-timeDate(charvec)
+length <-floor(length(charvec)/2)
+subset <-timeDate(sample(charvec)[1:length])
+```
+zoo: 
+
+```{R}
+z <-zoo(data, index)
+systemTime(z[subset, ])
+```
+
+zoo 会自动经 fCalendar 包调用旧版本的 timeDate 函数，因此要 detach。
+
+xts: 
+
+该操作耗时巨大！
+
+timeSeries: 
+
+```{R}
+s <-timeSeries(data, index)
+systemTime(s[subset, ])
+```
+
+#### 基于 Date 对象，对一个时期跨度为 100 年，列数为 5 的以 GMT timeDate 对象形式存储的日时间序列进行取子集操作需要多长时间？
+
+常规数据 
+
+```{R}
+charvec <-format(seq(from = as.Date("1901-01-01"), to = as.Date("1999-12-31"), by = "day")) 
+data <-matrix(rnorm(length(charvec)*5), ncol = 5) 
+index <-timeDate(charvec, zone = "Zurich", FinCenter = "Zurich") 
+length <-floor(length(charvec)/2) 
+subset <-timeDate(sample(charvec)[1:length], zone = "Zurich",FinCenter = "Zurich")
+```
+
+zoo: 
+
+```{R}
+z <-zoo(data,index)
+systemTime(z[subset,])
+```
+
+xts: 
+
+```{R}
+x <- xts(data,index)
+#systemTime(x[subset, ])
+```
+
+timeSeries: 
+
+```{r}
+s <- timeSeries(data, index)
+systemTime(s[subset, ])
+```
+
+# 应用篇
+
+## ARIMA 模型
+
+## GARCH 模型
+
+## VaR 模型
+
+## 极值理论模型

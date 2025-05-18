@@ -1,0 +1,312 @@
+---
+title: "如何用R语言实现含股票和债券的投资组合的再平衡"
+author:
+  - MatrixSpk
+documentclass: ctexart
+keywords:
+  - R
+  - 投资组合
+  - 再平衡
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+## 引言
+
+以下是使用 R 语言实现一个简单的“股票-债券”再平衡策略的代码示例。这里的策略基于阈值再平衡逻辑，即投资组合中的股票占比偏离目标比例超过设定阈值时触发再平衡调整。
+ 
+# 策略逻辑
+ 
+## 目标配置
+
+设定股票（如沪深300指数ETF）和债券（如国债ETF）的目标比例，例如，股票60%，债券40%。
+ 
+## 偏离阈值
+
+当股票实际占比偏离目标比例±10%时，触发再平衡（卖出超配资产，买入低配资产）。
+ 
+## 再平衡规则
+ 
+- 若股票占比 > 目标比例 + 阈值：卖出多余股票，买入债券；
+- 若股票占比 < 目标比例 - 阈值：卖出部分债券，买入股票。
+ 
+# 再平衡策略的R代码实现
+ 
+## 安装并加载依赖包
+ 
+```{r load}
+# 安装相关R包
+# install.packages(c("quantmod", "xts", "TTR"))
+
+# 加载包
+library(quantmod)   # 数据获取与处理
+library(xts)        # 时间序列数据
+library(TTR)        # 简单指标计算
+```
+ 
+## 数据准备（模拟或获取真实数据）
+ 
+```{r data}
+# 生成模拟的股票（沪深300）和债券（国债ETF）价格数据（400个交易日）
+set.seed(123)
+n_days <- 200
+stock_returns <- cumsum(rnorm(n_days, mean = 0.001, sd = 0.02))
+bond_returns <- cumsum(rnorm(n_days, mean = 0.0005, sd = 0.01))
+stock_prices <- 100 * exp(stock_returns)
+bond_prices <- 100 * exp(bond_returns)
+dates <- as.Date("2024-01-01") + 0:(n_days-1)
+prices <- as.xts(cbind(Stock = stock_prices, Bond = bond_prices), order.by = dates)
+```
+
+## 定义投资组合类和再平衡函数
+
+```{r portfolio}
+Portfolio <- setRefClass(
+  "Portfolio",
+  fields = list(
+    target_stock = "numeric",
+    threshold = "numeric",
+    initial_cash = "numeric",
+    positions = "list",
+    history = "list"
+  ),
+  
+  methods = list(
+    initialize = function(target_stock = 0.6, threshold = 0.1, initial_cash = 100000) {
+      target_stock <<- target_stock
+      threshold <<- threshold
+      initial_cash <<- initial_cash
+      positions <<- list(stock = 0, bond = 0, cash = initial_cash)
+      history <<- list()
+      invisible(.self)  # 使用 .self 代替 self
+    },
+
+    calculate_allocation = function(price) {
+      stock_value <- positions$stock * price[, "Stock"]
+      bond_value <- positions$bond * price[, "Bond"]
+      total_value <- stock_value + bond_value + positions$cash
+      list(
+        stock_value = as.numeric(stock_value),
+        bond_value = as.numeric(bond_value),
+        cash = positions$cash,
+        total_value = as.numeric(total_value),
+        stock_ratio = as.numeric(stock_value / total_value),
+        bond_ratio = as.numeric(bond_value / total_value)
+      )
+    },
+
+    rebalance = function(price) {
+      allocation <- calculate_allocation(price)
+      stock_ratio <- allocation$stock_ratio
+
+      if (abs(stock_ratio - target_stock) > threshold) {
+        target_stock_value <- allocation$total_value * target_stock
+        target_bond_value <- allocation$total_value * (1 - target_stock)
+        adjust_stock <- target_stock_value - allocation$stock_value
+        adjust_bond <- target_bond_value - allocation$bond_value
+
+        # 使用 <<- 修改类字段
+        positions$stock <<- positions$stock + adjust_stock / price[, "Stock"]
+        positions$bond <<- positions$bond + adjust_bond / price[, "Bond"]
+        positions$cash <<- positions$cash - adjust_stock - adjust_bond
+
+        # 记录历史
+        history <<- c(
+          history,
+          list(list(
+            date = index(price),
+            action = ifelse(adjust_stock > 0, "买入股票", "卖出股票"),
+            stock_ratio = stock_ratio,
+            target_ratio = target_stock,
+            total_value = allocation$total_value
+          ))
+        )
+      }
+      invisible(allocation)
+    },
+
+   simulate = function(prices) {
+  for (i in 1:nrow(prices)) {
+    price_row <- prices[i, ]
+    allocation <- calculate_allocation(price_row)
+    rebalance(price_row)
+    
+    # 判断是否触发再平衡
+    rebalanced_value <- if (length(history) > 0) {
+      any(grepl("action", names(history[[length(history)]])))
+    } else {
+      FALSE
+    }
+    
+    # 记录每日状态
+    history <<- c(
+      history,
+      list(list(
+        date = index(price_row),
+        total_value = allocation$total_value,
+        stock_ratio = allocation$stock_ratio,
+        cash = allocation$cash,
+        action = if (rebalanced_value) history[[length(history)]]$action else NA,
+        rebalanced = rebalanced_value
+      ))
+    )
+  }
+  invisible(.self)
+}
+  )
+)
+```
+
+##初始化投资组合并运行回测
+
+```{r init}
+portfolio <- Portfolio$new(target_stock = 0.6, threshold = 0.1, initial_cash = 100000)
+
+# 初始建仓
+initial_price <- prices[1, ]
+initial_stock_value <- portfolio$initial_cash * portfolio$target_stock
+initial_bond_value <- portfolio$initial_cash * (1 - portfolio$target_stock)
+portfolio$positions$stock <- initial_stock_value / as.numeric(initial_price[, "Stock"])
+portfolio$positions$bond <- initial_bond_value / as.numeric(initial_price[, "Bond"])
+portfolio$positions$cash <- 0  # 初始现金用尽
+
+# 运行模拟
+portfolio$simulate(prices)
+
+# 查看历史记录
+head(portfolio$history)
+```
+ 
+## 策略回测结果并可视化
+ 
+```{r}
+# 整理历史数据
+library(dplyr)
+
+# 合并历史数据并计算净值
+history_df <- bind_rows(portfolio$history) %>%
+  mutate(
+    date = as.Date(date, format = "%Y-%m-%d"),  # 转换日期格式
+    net_value = total_value / first(total_value)  # 基准化为初始净值
+)
+
+# 加载必要包
+library(xts)
+library(zoo)  # 用于时间序列处理
+
+# 创建可复现示例数据（如果实际数据不存在）
+# history_df <- structure(list(...)) 
+
+# 设置图形参数
+# par(family = 'STHeiti')  # 中文字体支持（Windows用'SimHei'，macOS用'STHeiti'）
+par(mar = c(5, 4, 4, 4) + 0.1)  # 调整图形边距
+
+# 创建基础图形
+plot(
+  x = history_df$date, 
+  y = history_df$net_value,
+  type = "l", 
+  lwd = 2,
+  col = "steelblue",
+  xlab = "Date",
+  ylab = "net value",
+  main = "rebanlance of stocks and bonds",
+  xaxt = "n"  # 禁用默认x轴
+)
+
+# 自定义日期坐标轴
+axis.Date(
+  side = 1,
+  at = seq(min(history_df$date), max(history_df$date), by = "1 month"),
+  format = "%Y-%m",
+)
+
+# 添加再平衡事件标记
+points(
+  x = history_df$date[history_df$rebalanced],
+  y = history_df$net_value[history_df$rebalanced],
+  pch = 24,  # 三角形标记
+  col = "firebrick",
+  bg = "gold",
+  cex = 0.5
+)
+
+# 添加辅助网格线
+grid(
+  nx = NA, 
+  ny = NULL,  # 仅横向网格线
+  col = "lightgray", 
+  lty = "dotted"
+)
+
+# 添加图例
+legend(
+  "topleft",
+  legend = c("net value curve", "rebanlance"),
+  col = c("steelblue", "firebrick"),
+  lty = c(1, NA),
+  pch = c(NA, 24),
+  pt.bg = c(NA, "gold"),
+  bty = "n"
+)
+
+# 可选：添加次坐标轴（例如显示原始总价值）
+par(new = TRUE)
+plot(
+  x = history_df$date, 
+  y = history_df$total_value,
+  type = "l", 
+  lty = 2,
+  col = "darkgreen",
+  axes = FALSE, 
+  xlab = "", 
+  ylab = ""
+)
+axis(4, col.axis = "darkgreen")
+mtext("Total value", side = 4, line = 3, col = "darkgreen")
+```
+ 
+# 代码说明
+ 
+## 数据准备：
+ 
+- 使用 `rnorm`  生成模拟的股票和债券价格（可替换为真实数据，如用  `getSymbols("000300.SH", from = "2010-01-01") ` 获取沪深300指数）。
+ 
+- 数据格式为  `xts`  时间序列，方便按日期处理。
+ 
+## 投资组合类：
+ 
+-  `Portfolio`  类包含目标配置、阈值、初始现金、持仓和历史记录等字段。
+ 
+-  `calculate_allocation`  计算当前资产比例， `rebalance`  执行再平衡逻辑， `simulate`  按日模拟交易。
+ 
+## 再平衡逻辑：
+ 
+- 每次计算股票实际占比，若偏离目标超过阈值（如±10%），则调整至目标比例（通过卖出/买入资产）。
+ 
+- 记录每次再平衡的时间、操作和组合价值。
+ 
+## 回测与可视化：
+ 
+- 归一化净值曲线展示策略表现，红色点标记再平衡触发点，直观显示调整对组合的影响。
+ 
+# 扩展建议
+ 
+## 加入交易成本
+
+在  rebalance  函数中添加佣金、滑点等成本（如  `cost <- abs(adjust_stock + adjust_bond) * 0.001 `，假设千分之一佣金）。
+ 
+## 处理最小交易单位：
+
+避免买入零碎股（如  `floor(adjust_stock / price[1])`  取整）。
+ 
+## 定期再平衡
+
+增加按固定频率（如每年12月31日）触发再平衡的逻辑，而非仅依赖阈值。
+ 
+## 多资产支持
+
+扩展至股票、债券、黄金等多资产类别，通过循环遍历资产实现通用再平衡。通过以上代码，可直观理解再平衡策略在R中的实现逻辑，并根据需求调整参数（目标比例、阈值、资产类别等）。

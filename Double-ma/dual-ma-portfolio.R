@@ -1,0 +1,553 @@
+library(quantmod)
+library(TTR)
+library(PerformanceAnalytics)
+library(quadprog)
+library(xts)
+library(tidyr)
+library(dplyr)
+
+# ================== 参数配置 ==================
+rds_files <- "data/"            # 本地RDS文件路径
+syms <- c("AAPL","BABA","TSLA")
+
+# 双均线策略参数
+short_ma <- 20      # 短期均线周期
+long_ma <- 50       # 长期均线周期
+
+# 风险过滤参数
+volatility_window <- 20    # 波动率计算窗口
+volume_window <- 30        # 成交量过滤窗口
+max_volatility <- 0.03     # 最大允许波动率
+min_volume <- 1000000      # 最小平均成交量
+
+# 组合优化参数
+optim_method <- "min_var"  # 优化方法：equal/min_var/max_sharpe
+
+# 交易参数
+transaction_cost <- 0.001   # 交易费率
+slippage_rate <- 0.0005     # 滑点率
+initial_capital <- 1e6      # 初始资金
+
+
+
+# ================== 数据加载与预处理 ==================
+# 读取并合并RDS文件
+load_rds_data <- function(data_path = "./data") {  # 使用更合理的默认路径
+  # 加载必要包
+  if (!requireNamespace("dplyr", quietly = TRUE)) {
+    stop("请先安装dplyr包：install.packages('dplyr')")
+  }
+  
+  # 获取文件列表
+  file_list <- list.files(
+    path = data_path,
+    pattern = "\\.rds$",
+    full.names = TRUE
+  )
+  
+  if (length(file_list) == 0) {
+    warning("指定目录中未找到RDS文件")
+    return(tibble::tibble())
+  }
+  
+  # 定义读取函数（带股票代码标记）
+  read_stock_data <- function(file_path) {
+    tryCatch({
+      # 读取RDS文件
+      df <- readRDS(file_path)
+      
+      # 处理时间序列对象（如xts/zoo）
+      if (inherits(df, c("xts", "zoo"))) {
+        df <- data.frame(
+          date = as.Date(index(df)),
+          coredata(df),
+          row.names = NULL
+        )
+      }
+      
+      # 添加股票代码列
+      df %>% 
+        mutate(stock_code = sub("\\.rds$", "", basename(file_path)))
+    }, error = function(e) {
+      message("处理文件失败: ", file_path)
+      message("错误信息: ", e$message)
+      return(NULL)
+    })
+  }
+  
+  # 批量读取所有文件
+  data_list <- lapply(file_list, read_stock_data)
+  
+  # 过滤无效结果
+  valid_data <- Filter(Negate(is.null), data_list)
+  
+  # 合并为长格式数据
+  if (length(valid_data) == 0) {
+    warning("所有文件处理均失败")
+    return(tibble::tibble())
+  }
+  
+  combined_data <- dplyr::bind_rows(valid_data)
+  
+  # 返回结果
+  return(combined_data)
+}
+
+
+long_data <- load_rds_data()
+
+
+# 转换为宽数据
+prepare_wide_data <- function(long_data, 
+                              price_col = "Close",
+                              volume_col = "Volume",
+                              symbol_col = "stock_code") {
+  # 加载必要包
+  if (!requireNamespace("tidyr", quietly = TRUE)) {
+    stop("请先安装tidyr包：install.packages('tidyr')")
+  }
+  if (!requireNamespace("xts", quietly = TRUE)) {
+    stop("请先安装xts包：install.packages('xts')")
+  }
+  
+  # 检查必要列是否存在
+  required_columns <- c("date", price_col, volume_col, symbol_col,
+                        "Open", "High", "Low", "Adjusted")
+  check_required_columns <- function(data, required) {
+    missing_cols <- setdiff(required, colnames(data))
+    if (length(missing_cols) > 0) {
+      stop("缺少必要列：", paste(missing_cols, collapse = ", "),
+           "\n现有列为：", paste(colnames(data), collapse = ", "))
+    }
+  }
+  check_required_columns(long_data, required_columns)
+  
+  tryCatch({
+    # 生成价格宽表
+    price_wide <- long_data %>%
+      select(date, all_of(c(symbol_col, price_col))) %>%
+      pivot_wider(
+        names_from = all_of(symbol_col),
+        values_from = all_of(price_col)
+      ) %>%
+      arrange(date) %>%
+      {xts(.[,-1], order.by = .$date)}
+    
+    # 生成成交量宽表
+    volume_wide <- long_data %>%
+      select(date, all_of(c(symbol_col, volume_col))) %>%
+      pivot_wider(
+        names_from = all_of(symbol_col),
+        values_from = all_of(volume_col)
+      ) %>%
+      arrange(date) %>%
+      {xts(.[,-1], order.by = .$date)}
+    
+    # 对齐时间索引（保留所有观测值）
+    aligned_data <- merge(price_wide, volume_wide, join = "inner")
+    colnames(aligned_data) <- c(paste0("Price_", colnames(price_wide)),
+                                paste0("Volume_", colnames(volume_wide)))
+    
+    return(list(
+      prices = aligned_data[, grep("^Price_", colnames(aligned_data))],
+      volumes = aligned_data[, grep("^Volume_", colnames(aligned_data))],
+      full_data = aligned_data
+    ))
+  }, error = function(e) {
+    message("数据转换失败：", e$message)
+    return(NULL)
+  })
+}
+
+# 使用示例
+if (exists("long_data") && nrow(long_data) > 0) {
+  wide_data <- prepare_wide_data(long_data)
+} else {
+  warning("输入数据不存在或为空！")
+}
+
+#-----------------------------------------------------------------------------------------
+# prepare_wide_data()返回一个列表，该列表包含prices数据框、volumes数据框和full_data数据框
+# 可以通过wide_data$prices/wide_data$volumes/wide_data$full_data来分别引用
+#-----------------------------------------------------------------------------------------
+
+wide_data <- prepare_wide_data(long_data)
+
+# ================== 信号生成与风险过滤 ==================
+generate_dual_ma_signals <- function(wide_data, short_ma = 20, long_ma = 50,...) {
+  prices <- wide_data$prices
+  signals <- list()
+  
+  for (sym in colnames(prices)) {
+    price <- prices[, sym]
+    
+    # 计算双均线
+    sma_short <- SMA(price, n = short_ma)
+    sma_long <- SMA(price, n = long_ma)
+    
+    # 生成原始信号（0/1/-1）
+    cross_up <- sma_short > sma_long  # 短线上穿长线
+    cross_down <- sma_short < sma_long  # 短线下穿长线
+    
+    # 初始化信号为xts对象
+    signal <- xts(rep(0, length(price)), order.by = index(price))
+    
+    # 捕捉交叉变化点（使用滞后条件避免未来数据）
+    # 买入条件：前一日未上穿，当日上穿
+    signal[cross_up & lag.xts(!cross_up, 1)] <- 1
+    # 卖出条件：前一日未下穿，当日下穿
+    signal[cross_down & lag.xts(!cross_down, 1)] <- -1
+    
+    # 滞后处理信号（确保信号在下一期生效）
+    signals[[sym]] <- lag.xts(signal)
+  }
+  
+  # 合并信号并填充NA为0
+  merged_signals <- do.call(merge.xts, signals)
+  merged_signals <- na.fill(merged_signals, fill = 0)
+  
+  # 设置列名与价格数据一致
+  colnames(merged_signals) <- syms
+  merged_signals[is.na(merged_signals)] <- 0
+  return(merged_signals)
+}
+# 示例
+signals <- generate_dual_ma_signals(wide_data)
+
+apply_risk_filters <- function(wide_data, volatility_window = 20, volume_window = 30, 
+                               max_volatility = 0.02, min_volume = 1e6, ...) {
+  # 提取xts对象
+  prices <- wide_data$prices
+  volumes <- wide_data$volumes
+  
+  # 计算收益率和滚动指标
+  returns <- ROC(prices, type = "discrete")
+  rolling_vol <- rollapply(returns, volatility_window, sd, align = "right", na.rm = TRUE)
+  rolling_volume <- rollapply(volumes, volume_window, mean, align = "right", na.rm = TRUE)
+  
+  # 生成过滤条件并处理NA
+  volatility_filter <- rolling_vol <= max_volatility
+  volatility_filter[is.na(volatility_filter)] <- FALSE
+  
+  volume_filter <- rolling_volume >= min_volume
+  volume_filter[is.na(volume_filter)] <- FALSE
+  
+  # 合并条件并保留时间索引
+  valid_assets <- volatility_filter & volume_filter
+  valid_assets <- xts(valid_assets, order.by = index(prices))
+  
+  # 设置列名
+  colnames(valid_assets) <- syms 
+  return(valid_assets)
+}
+
+valid_assets <- apply_risk_filters(wide_data)
+
+
+# 信号与流动性整合（抑制非流动性买入）
+integrate_signals_and_filters <- function(raw_signals, valid_assets) {
+  final_signals <- raw_signals
+  final_signals[!valid_assets & raw_signals == 1] <- 0
+  return(final_signals)
+}
+
+
+
+# 获取当前日期的有效信号和有效资产
+get_valid_signals_and_assets <- function(wide_data, final_signals, valid_assets, i) {
+  current_prices <- coredata(wide_data$prices[i, ])
+  prev_signal <- final_signals[i-1, ]
+  prev_valid <- valid_assets[i-1, ]
+  
+  valid_symbols <- names(wide_data$prices)[prev_valid | prev_signal == -1]
+  return(list(valid_symbols, prev_signal, prev_valid))
+}
+
+
+# ================== 组合优化 ==================
+optimize_portfolio <- function(wide_data, 
+                               method = c("equal", "min_var", "max_sharpe", 
+                                          "risk_parity", "max_diversification",
+                                          "black_litterman", "mean_cvar"),
+                               lookback = 252,
+                               risk_free = 0,
+                               ...) {
+  # 参数验证
+  stopifnot(
+    is.list(wide_data),
+    "prices" %in% names(wide_data),
+    is.numeric(lookback), lookback > 0
+  )
+  
+  # 加载必要包
+  require_pkg <- function(pkg) {
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      stop("请先安装 ", pkg, " 包: install.packages('", pkg, "')", call. = FALSE)
+    }
+  }
+  
+  # 转换价格数据为xts
+  prices <- tryCatch({
+    if (!xts::is.xts(wide_data$prices)) {
+      xts::xts(wide_data$prices[, -1], order.by = as.Date(wide_data$prices[, 1]))
+    } else {
+      wide_data$prices
+    }
+  }, error = function(e) stop("价格数据格式错误: ", e$message))
+  
+  # 计算收益率
+  returns <- PerformanceAnalytics::Return.calculate(prices, method = "log")[-1]
+  valid_assets <- colnames(returns)[colSums(is.na(returns)) == 0]
+  returns <- returns[, valid_assets]
+  
+  # 主优化逻辑
+  method <- match.arg(method)
+  
+  weights <- switch(
+    method,
+    equal = {
+      w <- rep(1/length(valid_assets), length(valid_assets))
+      names(w) <- valid_assets
+      w
+    },
+    
+    min_var = {
+      require_pkg("quadprog")
+      cov_mat <- cov(returns, use = "complete.obs")
+      Dmat <- 2 * cov_mat
+      dvec <- rep(0, ncol(returns))
+      Amat <- cbind(1, diag(ncol(returns)))  # 预算约束和做空限制
+      bvec <- c(1, rep(0, ncol(returns)))
+      result <- quadprog::solve.QP(Dmat, dvec, Amat, bvec, meq = 1)
+      w <- result$solution
+      names(w) <- valid_assets
+      w
+    },
+    
+    max_sharpe = {
+      require_pkg("PortfolioAnalytics")
+      port_spec <- PortfolioAnalytics::portfolio.spec(assets = valid_assets)
+      port_spec <- PortfolioAnalytics::add.objective(
+        port_spec, type = "return", name = "mean")
+      port_spec <- PortfolioAnalytics::add.objective(
+        port_spec, type = "risk", name = "StdDev")
+      opt <- PortfolioAnalytics::optimize.portfolio(
+        returns, port_spec, optimize_method = "ROI")
+      w <- PortfolioAnalytics::extractWeights(opt)
+      names(w) <- valid_assets
+      w
+    },
+    
+    risk_parity = {
+      require_pkg("RiskPortfolios")
+      cov_mat <- cov(returns, use = "complete.obs")
+      w <- RiskPortfolios::optimalPortfolio(cov_mat, 
+                                            control = list(type = "maxdec"))
+      setNames(as.numeric(w), valid_assets)
+    },
+    
+    max_diversification = {
+      require_pkg("FRAPO")
+      cov_mat <- cov(returns, use = "complete.obs")
+      w <- FRAPO::PRD(returns)
+      setNames(w, valid_assets)
+    },
+    
+    black_litterman = {
+      require_pkg("BLCOP")
+      # 需要用户提供观点矩阵，此处为示例
+      pick <- matrix(0, nrow = 1, ncol = ncol(returns))
+      pick[1, 1:2] <- c(1, -1)  # 相对观点示例
+      views <- BLCOP::BLViews(P = pick, q = 0.05, confidences = 0.5, 
+                              assetNames = valid_assets)
+      prior <- BLCOP::priorEstimation(returns)
+      posterior <- BLCOP::posteriorEst(views, prior)
+      w <- BLCOP::getPortfolioWeights(posterior)
+      w
+    },
+    
+    mean_cvar = {
+      require_pkg("CVXR")
+      alpha <- 0.95  # 置信水平
+      w <- CVXR::Variable(length(valid_assets))
+      port_return <- CVXR::Mean(returns) %*% w
+      cvar <- CVXR::CVaR(returns %*% w, alpha = alpha)
+      prob <- CVXR::Problem(
+        Maximize(port_return - 0.5 * cvar),
+        constraints = list(w >= 0, sum(w) == 1)
+      )
+      result <- CVXR::solve(prob)
+      setNames(result$getValue(w), valid_assets)
+    },
+    
+    stop("不支持的优化方法: ", method)
+  )
+  
+  # 标准化权重
+  weights <- weights / sum(weights)
+  return(weights[weights > 1e-6])  # 过滤微小权重
+}
+
+# 等权重组合
+# weights<- optimize_portfolio(wide_data, method = "equal")
+
+# 修改后的回测函数
+backtest_strategy <- function(wide_data, 
+                              initial_capital = 1e6,
+                              transaction_fee = 0.001,
+                              slippage = 0.0005,
+                              lookback_window = 252,
+                              optimize_method = "min_var",
+                              short_ma = 10,
+                              long_ma = 20,
+                              volatility_window = 10,
+                              volume_window = 10,
+                              max_volatility = 0.03,
+                              min_volume = 1000000, ...) {
+  
+  
+
+  
+
+  raw_signals <- generate_dual_ma_signals(wide_data, short_ma, long_ma)
+  valid_assets <- apply_risk_filters(wide_data, volatility_window, volume_window, max_volatility, min_volume)
+  final_signals <- integrate_signals_and_filters(raw_signals, valid_assets)
+  
+  dates <- na.omit(index(wide_data$prices))
+  n_days <- length(dates)
+  lookback_window <- min(lookback_window,(n_days-1))
+  symbols <- colnames(wide_data$prices)
+  
+  positions <- xts(
+    matrix(0, nrow = n_days, ncol = length(symbols)),
+    order.by = dates
+  ) %>% na.locf()
+  
+  colnames(positions) = symbols
+  
+  cash <- xts(
+    matrix(rep(initial_capital, n_days), ncol = 1), 
+    order.by = dates
+  )
+  
+  colnames(cash) = "Cash"
+  
+  trade_log <- list()
+  
+  # 主回测循环
+  
+  for (i in (lookback_window + 1):n_days) {
+    
+    current_date   <- dates[i]
+    current_prices <- wide_data$prices[i]
+    
+    # 获取当前日期的有效信号和有效资产
+    
+    list_valid <- get_valid_signals_and_assets(wide_data, final_signals, valid_assets, i)
+    valid_symbols <- list_valid[[1]]
+    prev_signal <- list_valid[[2]]
+    prev_valid <- list_valid[[2]]
+
+if (length(valid_symbols) == 0) next
+
+    # 获取历史数据切片
+hist_data <- list(
+  prices = wide_data$prices[(i-lookback_window):i, ],
+  volumes = wide_data$volumes[(i-lookback_window):i, ]
+)
+
+optimized_weights <- tryCatch(
+  optimize_portfolio(hist_data, method = optimize_method),
+  error = function(e) {
+    warning("优化失败于", current_date, ": ", e$message)
+    return(NULL)
+  }
+)
+
+if (is.null(optimized_weights)) next
+
+valid_weights <- optimized_weights[names(optimized_weights) %in% valid_symbols]
+
+if (length(valid_weights) == 0) next
+
+valid_weights <- valid_weights / sum(valid_weights)
+
+total_assets <- sum(as.numeric(positions[i-1, ])*as.numeric(current_prices)) + as.numeric(coredata(cash[i-1]))
+
+target_values <- total_assets * valid_weights
+
+target_shares <- round(target_values/as.data.frame(current_prices)[names(valid_weights)], 0)
+
+current_shares <- coredata(positions[i-1, names(valid_weights)])
+
+trade_shares <- target_shares - current_shares
+
+if (any(trade_shares != 0)) {
+      traded_symbols <- names(valid_weights)
+      n_trades <- length(traded_symbols)
+      
+      trade_amounts <- abs(trade_shares) * as.data.frame(current_prices)[names(valid_weights)]
+      fee_cost <- sum(trade_amounts) * transaction_fee
+      slippage_cost <- sum(abs(trade_shares) * as.data.frame(current_prices)[names(valid_weights)] * slippage)
+      cash[i] <- cash[i-1] - sum(trade_shares * as.data.frame(current_prices)[names(valid_weights)]) - fee_cost - slippage_cost
+      positions[i, names(valid_weights)] <- as.matrix(target_shares)
+      
+      df <- data.frame(
+            Date = rep(as.Date(current_date), n_trades),
+            Symbol = as.character(names(valid_weights)),
+            Action = as.character(ifelse(trade_shares > 0, "Buy", "Sell")),
+            Shares = as.numeric(abs(trade_shares)),
+            Price = as.numeric(as.data.frame(current_prices)[names(valid_weights)]),
+            Fee = as.numeric(fee_cost * (abs(trade_shares) / sum(abs(trade_shares)))),
+            Slippage = as.numeric(abs(trade_shares) * as.data.frame(current_prices)[names(valid_weights)] * slippage),
+            row.names = NULL
+      )
+      colnames(df)<-c("Date","Symbol","Action","Shares","Price","Fee","Slippage")
+      trade_log[[as.character(current_date)]] <- df
+}
+
+
+
+inactive_symbols <- setdiff(symbols, names(valid_weights))
+
+if (length(inactive_symbols) > 0) {
+  positions[i, inactive_symbols] <- 
+    positions[i - 1, inactive_symbols]
+}
+  }
+  
+  # 后处理与性能分析
+  market_value <- positions * wide_data$prices
+  total_assets <- rowSums(market_value) + cash
+  equity <- total_assets
+  
+  returns <- Return.calculate(equity)
+  trade_history <- do.call(rbind, trade_log)
+  rownames(trade_history) <- NULL
+  
+  # 返回结构化结果
+  return(list(
+    returns = returns,
+    positions = positions,
+    cash = cash,
+    trades = trade_history,
+    market_value = market_value,
+    equity = equity,
+    total_assets = total_assets
+  ))
+}
+
+# 示例调用（注意：需要提供符合格式的wide_data）
+backtest_results <- backtest_strategy(wide_data)
+
+# 结果分析与可视化示例
+# 净值曲线
+plot(backtest_results$equity, main = "组合净值曲线",col = "grey")
+# 持仓分析
+print(tail(backtest_results$positions))
+# 交易记录概览
+cat("总交易次数:", nrow(backtest_results$trades), "\n")
+# 绩效指标
+portfolio_returns <- ROC(backtest_results$equity, type = "discrete")
+cat("年化收益率:", Return.annualized(portfolio_returns), "\n")
+cat("最大回撤:", maxDrawdown(portfolio_returns), "\n")

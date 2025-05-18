@@ -1,0 +1,41 @@
+---
+title: "R中的量化投资包之fAssets包简介"
+author:
+  - MatrixSpk
+documentclass: ctexart
+keywords:
+  - R
+  - 量化投资
+  - fAssets
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+# 引言
+
+fAssets 包是一个用来描述资产特征的一个R包，它的主要作用是计算投资组合的收益率、风险价值、矩等性质，并用简单明了的图形将其可视化。fAssets 包主要在确定量化投资策略的前期使用。目前，fAssets 包尚处于开发过程中，因此，尚有许多功能不够完善。
+
+安装 fAssets 包最最简单的方法是打开 R，敲入如下代码：
+
+```{r}
+install.packages("fAssets")
+```
+
+当然，你也可以手动下载 fAssets 包到本地自行安装。使用 fAssets 包中的函数或者数据集时，需要敲入代码：
+
+```{r}
+library(fAssets)
+```
+
+或者：
+
+```{r}
+require(fAssets)
+```
+
+
+
+# 小结

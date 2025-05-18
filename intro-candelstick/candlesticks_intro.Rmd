@@ -1,0 +1,609 @@
+---
+title: "R中的量化投资包之candlesticks包简介"
+author:
+  - MatrixSpk
+documentclass: ctexart
+keywords:
+  - R
+  - 量化投资
+  - 蜡烛图
+  - candlesticks
+output:
+  rticles::ctex:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+```{R}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 4.5,
+  out.width = "90%"
+)
+```
+
+
+```{r include=FALSE,eval=TRUE}
+library(quantmod)
+library(candlesticks)
+AAPL <- readRDS("AAPL.rds")
+```
+
+# 引言
+
+# candlesticks包的安装
+
+旧版本的 candlesticks 包可以从[R-Forge](http://R-Forge.R-project.org)上安装，代码如下：
+
+```{r install_pkg,eval=FALSE}
+install.packages("candlesticks", repos="http://R-Forge.R-project.org")
+```
+
+最新版本的 candlesticks 包可以从 github 上下载并安装，代码如下：
+
+```{r install_pkg_git, eval=FALSE}
+devtools::install_github(repo="https://github.com/dengyishuo/candlesticks")
+```
+
+# candlesticks包核心函数分类与作用
+
+candlesticks 包里提供了众多识别蜡烛图形态的函数，按作用可以将其分为几类：
+
+- 形态识别类函数
+- 趋势识别类函数
+- 辅助计算类函数
+
+顾名思义，形态识别类函数用以识别“早晨之星”、“锤子线”、“乌云盖顶”等常见的蜡烛图形态；趋势识别类函数则主要用以识别当前金融标的的价格趋势；而辅助计算函数则是帮助进行一些杂项的运算。
+
+## 形态识别类函数
+
+形态识别类函数是 candlesticks 包中为数最众的函数，它们又可以区分为翻转形态函数、持续形态函数以及特殊形态函数。
+
+### 反转形态函数
+
+#### CSPDarkCloudCover
+
+函数作用：
+
+该函数的作用是检测“乌云盖顶”形态，属看跌反转信号，通常出现在上升趋势末端。
+
+示例：
+
+```{r DCC}
+CSP <- CSPDarkCloudCover(AAPL)
+head(CSP)
+
+CSP <- CSPDarkCloudCover(AAPL, n=20, minbodysizeMedian=1)
+head(CSP)
+  
+# filter dark cloud covers that occur in uptrends.
+# the lag of 2 periods of the time series for trend detection
+# ensures that the uptrend is active *before* the
+# dark cloud cover occurs.
+
+CSP <- CSPDarkCloudCover(AAPL) & TrendDetectionChannel(lag(AAPL,k=2))[,"UpTrend"]
+head(CSP)
+```
+
+扩展：
+
+在上升趋势中，若检测到乌云盖顶且$ RSI\ge 70$，可视为卖出信号。
+
+#### CSPPiercingPattern
+
+乌云盖顶：上涨后出现高开低走阴线，预示顶部反转。
+刺透形态：下跌后出现低开高走阳线，暗示底部反转。
+
+```{r P}
+CSP<- CSPPiercingPattern(AAPL)
+  
+  # filter piercing patterns that occur in downtrends.
+  # the lag of 2 periods of the time series for trend detection
+  # ensures that the uptrend is active *before* the
+  # dark cloud cover occurs.
+
+CSP <- CSPPiercingPattern(AAPL) & TrendDetectionChannel(lag(AAPL,k=2))[,"DownTrend"]
+```
+
+
+#### CSPHammer
+
+作用：识别锤子线（看涨）或上吊线（看跌），需长下影线。
+
+参数示例：
+
+```{r Hammer}
+# filter for hammer patterns
+CSP <- CSPHammer(AAPL)
+  
+# filter for hammer patterns that occur in downtrends
+CSP <- CSPHammer(AAPL) & TrendDetectionChannel(AAPL)[,"DownTrend"]
+```
+
+#### CSPInvertedHammer
+
+作用：用来识别倒锤子线，倒锤子线出现在下跌趋势末端（上影线长、实体小），预示趋势可能翻转
+
+```{r inverhammer}
+# filter for hanging man patterns
+
+CSP <- CSPInvertedHammer(AAPL)
+  
+# filter for hanging man patterns that occur in downtrends
+
+CSP <- CSPInvertedHammer(AAPL) & TrendDetectionChannel(AAPL)[,"DownTrend"]
+```
+
+#### CSPStar
+
+```{r star}
+
+CSP <- CSPStar(AAPL)
+
+# allow only a small second candle body
+CSP <- CSPStar(AAPL, maxbodysizeMedian=.5)
+  
+# filter for morning stars that occour in downtrends
+CSP <- MorningStar <- CSPStar(AAPL)[,"MorningStar"]&TrendDetectionChannel(lag(AAPL,k=3))[,"DownTrend"]
+```
+
+#### CSPDoji
+
+作用：识别十字星（Doji），反映市场犹豫，常预示趋势反转。
+
+参数示例：
+
+```{r doji}
+CSP <- CSPDoji(AAPL)
+  
+# filter for doji patterns that have exactly equal 
+# open and close prices
+
+CSP <- CSPDoji(AAPL, maxbodyCL=1)
+  
+# filter for gravestone doji patterns that occur in uptrends
+
+CSP <- CSPDoji(AAPL)[,"GravestoneDoji"] & TrendDetectionChannel(AAPL)[,"UpTrend"]
+
+
+```
+
+应用示例：
+
+若十字星出现在长期下跌后，且成交量放大，可能暗示底部反转。
+
+#### CSPEngulfing
+
+作用：检测吞没形态（看涨/看跌），第二根实体完全覆盖前一根实体。
+
+参数示例：
+
+```{r engulfing}
+
+CSP <- CSPEngulfing(AAPL)
+
+CSP <- CSPEngulfing(AAPL)[,"Bear.Engulfing"] & TrendDetectionChannel(AAPL)[,"UpTrend"]
+
+```
+
+应用示例：
+
+看涨吞没形态配合MACD底背离，可作为买入信号。
+
+#### CSPHarami
+
+作用：检测孕线形态，小实体完全包含在前一根大实体内。
+
+参数示例：
+
+```{r harami}
+
+CSP <- CSPHarami(AAPL)
+  
+# filter for bullish harami that occour in downtrends
+
+BullHarami <- CSPHarami(AAPL)[,"Bull.Harami"] &TrendDetectionChannel(lag(AAPL,k=2))[,"DownTrend"]
+```
+
+#### CSPKicking 
+
+作用:CSPKicking 用于检测金融市场的“跳空启动形态”（Kicking Pattern），该形态由两根跳空且颜色相反的蜡烛组成，通常出现在趋势反转阶段。
+
+看涨启动形态：第一根为长阴线，第二根跳空高开形成长阳线，预示空头趋势反转。
+
+看跌启动形态：第一根为长阳线，第二根跳空低开形成长阴线，提示多头趋势结束。
+
+
+```{R kicking}
+# look for Kicking Pattern right out of the textbook
+# they occur only once in a blue moon
+
+CSP <- CSPKicking(AAPL, ignoreShadows=FALSE, maxshadowCL=0)
+# use less strict filter rules
+
+CSP <- CSPKicking(AAPL)
+```
+
+应用示例:
+
+看涨启动形态策略
+
+```{r bullish_kick}
+# 检测看涨Kicking形态
+bullish_kick <- CSPKicking(AAPL)[,"Bull.Kicking"]&TrendDetectionChannel(lag(AAPL,k=2))[,"DownTrend"]
+
+# 结合成交量验证：第二根阳线需放量
+volume_cond <- quantmod::Vo(AAPL) > SMA(quantmod::Vo(AAPL), 10)
+
+# 生成买入信号
+buy_signal <- bullish_kick & volume_cond
+```
+
+逻辑：跳空高开阳线突破前阴线高点，且成交量放大，确认反转可信度。
+
+看跌启动形态策略:
+
+```{r bearish_kick}
+# 检测看跌Kicking形态
+bearish_kick <- CSPKicking(AAPL)[,"Bear.Kicking"]&&TrendDetectionChannel(lag(AAPL,k=2))[,"UpTrend"]
+
+# 结合RSI超买：RSI >70时增强信号
+rsi_cond <- RSI(quantmod::Cl(AAPL)) > 70
+
+# 生成卖出信号
+sell_signal <- bearish_kick & rsi_cond
+```
+
+逻辑：跳空低开阴线伴随超买指标，预示多头力量衰竭。
+
+#### CSPStomach
+
+```{r stomach}
+CSP <- CSPStomach(AAPL)
+
+CSP <- CSPStomach(AAPL)[,"AboveTheStomach"] & TrendDetectionChannel(lag(AAPL,k=2))[,"DownTrend"]
+```
+### 持续形态函数
+
+#### CSPGap
+
+用于检测缺口形态（如向上跳空或向下跳空），缺口形态常被视为短期趋势延续或反转的标志。
+
+```{r gap}
+CSP <- CSPGap(AAPL) # examine whole candle lenght
+
+CSP <- CSPGap(AAPL, ignoreShadows=TRUE) # examine only candle bodies
+```
+
+#### CSPTasukiGap
+
+作用：识别跳空并列阴阳线（Tasuki Gap），预示趋势延续。
+
+参数示例：
+
+```{r tgap}
+CSP <- CSPTasukiGap(AAPL)
+
+# filter upside tasuki gaps in uptrends
+
+CSP<- CSPTasukiGap(AAPL)[,"UpsideTasukiGap"] & TrendDetectionChannel(lag(AAPL,k=3))[,"UpTrend"]
+head(CSP)
+CSP_TRUE <- CSP[,"UpsideTasukiGap"][which(CSP[,"UpsideTasukiGap"]==TRUE)]
+CSP_TRUE
+```
+
+应用示例：
+
+上升趋势中跳空后出现小实体阴线但未回补缺口，可加仓。
+
+#### CSPMarubozu
+
+作用：识别光头光脚蜡烛（无影线），显示极端单边行情。
+
+参数示例：
+
+```{R marubozu}
+CSP <- CSPMarubozu(AAPL)
+  
+# include not-so-long-marubozus
+CSP <- CSPMarubozu(AAPL, ATRFactor=.8)
+  
+# filter for white closing marubozus (Cl(TS)=Hi(TS))
+CSP <- CSPMarubozu(AAPL, maxuppershadowCL=0)[,"WhiteMarubozu"]
+```
+
+#### CSPThreeMethods
+
+作用：检测“三法形态”（上升/下降三法），属趋势中继信号。
+
+参数示例：
+
+```{R threemethods}
+# filter rising three methods in uptrends
+
+CSP <- CSPThreeMethods(AAPL)[,"RisingThreeMethods"] & TrendDetectionChannel(lag(AAPL,k=5))[,"UpTrend"]
+```
+
+
+#### CSPInsideDay
+
+识别“内部日”形态，即当日价格波动范围完全包含于前一日价格区间内，暗示市场犹豫或潜在反转可能。
+
+```{r inside}
+CSP <- CSPInsideDay(AAPL)
+```
+
+#### CSPOutsideDay
+
+```{R outside}
+CSP <- CSPOutsideDay(AAPL)
+```
+
+#### CSPThreeInside
+  
+```{R threeinside}
+# filter three inside up in downtrends
+
+CSP <- CSPThreeInside(AAPL)[,"ThreeInsideUp"]&TrendDetectionChannel(lag(AAPL,k=3))[,"DownTrend"]
+
+CSP <- CSPThreeInside(AAPL)[,"ThreeInsideDown"]&TrendDetectionChannel(lag(AAPL,k=3))[,"UpTrend"]
+```
+
+#### CSPThreeOutside
+
+```{r threeoutside}
+CSP <- CSPThreeOutside(AAPL)
+  
+# filter three outside up in downtrends
+CSP<- CSPThreeOutside(AAPL)[,"ThreeOutsideUp"] & TrendDetectionChannel(lag(AAPL,k=3))[,"DownTrend"]
+```
+
+#### CSPShortCandle/CSPLoneCandle
+
+作用：检测短实体蜡烛（实体占长度30%以下），反映市场犹豫。
+参数示例：
+
+```{r short_long_can}
+CSP <- CSPLongCandle(AAPL)
+
+CSP <- CSPShortCandle(AAPL, threshold=.5) # filter for very small candles
+```
+
+短实体常出现在震荡或趋势反转前。
+
+#### CSPNLongWhiteCandles/CSPNLongBlackCandles
+ 
+```{r long}
+CSP <- CSPNLongBlackCandles(AAPL, N=3)  
+```
+
+#### CSPLongCandleBody/CSPShortCandleBody
+
+作用：筛选长实体蜡烛（实体占蜡烛长度70%以上）。
+参数示例：
+
+```{r longbody}
+CSP <- CSPLongCandleBody(AAPL)
+
+CSP <- CSPShortCandleBody(AAPL)
+```
+
+长实体反映单边强势，常见于趋势加速阶段。
+
+#### CSPNLongWhiteCandleBodies/CSPNLongBlackCandleBodies
+
+```{R longwhite}
+CSP <- CSPNLongWhiteCandleBodies(AAPL)
+
+CSP <- CSPNLongBlackCandleBodies(AAPL, N=4, n=50, threshold=1.2)
+```
+
+#### CSPNHigherClose
+
+```{R higher}
+CSP <- CSPNHigherClose(AAPL, N=3) # filter for 3 consecutive higher close
+```
+
+#### CSPNLowerClose
+
+```{R lower}
+CSP<- CSPNLowerClose(AAPL, N=4) # filter for 4 consecutive lower close
+```
+
+### 特殊形态函数
+
+#### CSPThreeWhiteSoldiers
+
+作用：检测“三白兵”形态，属强势看涨信号。
+
+参数示例：
+
+```{r threewhitesoldiers}
+CSP <- CSPThreeWhiteSoldiers(AAPL)
+```
+
+每根阳线实体需占蜡烛长度的70%以上67。
+
+#### CSPThreeBlackCrows
+
+
+作用：识别“三只乌鸦”形态，预示下跌延续。
+参数示例：
+
+```{r threeblackcrows}
+CSP <- CSPThreeBlackCrows(AAPL)
+```
+
+与三白兵逻辑相反，用于看跌趋势确认。
+
+#### CSPThreeLineStrike
+
+```{r threeline}
+TLS <- CSPThreeLineStrike(AAPL)
+  
+  # how often does that occur?
+  colSums(TLS, na.rm=TRUE)
+  
+  # when did that occur?
+  TLS[TLS[,1]>0 | TLS[,2]>0,]
+  
+  # filter for bearish three line strikes that occur in downtrends 
+  TLS1 <- CSPThreeLineStrike(AAPL)[,"Bear.ThreeLineStrike"] & 
+    TrendDetectionChannel(lag(AAPL,k=4))[,"DownTrend"]
+  TLS1[TLS1[,1]>0,]
+  
+  # show in a chart
+  chartSeries(AAPL["2020-09::2020-10"])
+
+## End(Not run)
+```
+
+## 趋势及动量函数
+
+### TrendDetectionSMA/TrendDetectionChannel
+
+SMA趋势检测：通过移动平均线方向判断当前趋势7。
+
+通道检测：结合价格通道（如Donchian通道）判断支撑/压力位。
+
+```{R sma}
+# create chart of AAPL
+chartSeries(AAPL, subset="last 1 year", TA=NULL)
+  
+  # visualize the result of trend detection in a indicator box
+  addTA(TrendDetectionSMA(AAPL)[,4])
+  
+  # filter AAPL for Hammer Candlestick Patterns that occur in downtrends
+  Hammer <- CSPHammer(AAPL) & TrendDetectionSMA(AAPL)[,"DownTrend"]
+  
+  # how frequent are these hammers?
+  colSums(Hammer, na.rm=TRUE)
+```
+
+
+```{r channel}
+ # create chart of Apple
+  chartSeries(AAPL, subset="last 1 year", TA=NULL)
+  
+  # visualize the result of trend detection in a indicator box
+  addTA(TrendDetectionChannel(AAPL)[,4])
+  
+  # filter YHOO for Hammer Candlestick Patterns that occur in downtrends
+  Hammer <- CSPHammer(AAPL) & TrendDetectionChannel(AAPL)[,"DownTrend"]
+  
+  # how frequent are these hammers?
+  colSums(Hammer, na.rm=TRUE)
+
+```
+### DonchianChannel2
+
+生成唐奇安通道，用于突破策略的信号生成（如价格突破通道上轨为买入信号）
+
+```{R Donchian}
+dc <- DonchianChannel2(AAPL)
+
+dc
+```
+
+## 辅助计算类函数
+
+### is.HL
+
+```{R hl}
+is.HL(AAPL)
+```
+
+### is.OC
+
+```{R oc}
+is.OC(AAPL)
+
+```
+
+### LagOC
+
+```{r lagoc}
+LagOC(AAPL)        # Lag OC series by one period
+LagOC(AAPL, k=1:3) # Lag OC series by one, two and three periods
+                   # this will return a 6 columns xts object
+```
+
+### LagOHLC
+
+```{r lagohlc}
+LagOHLC(AAPL)        # Lag OHLC series by one period
+LagOHLC(AAPL, k=1:3) # Lag OHLC series by one, two and three periods this will return a 12 columns xts object
+```
+
+### nextCandlePosition
+
+```{R nextcan}
+CSPInvertedHammer(AAPL) & TrendDetectionChannel(AAPL)[,"UpTrend"] &nextCandlePosition(AAPL)[,"LowerClose"]
+```
+
+### addPriceInfo
+
+在生成的信号对象上添加价格信息，就是把OHLC添加上去。
+
+```{r addpri}
+# return detected Engulfing Pattern
+CSP <- CSPEngulfing(AAPL)
+
+# returns detected Engulfing Pattern including formation's OHLC
+CSP_addPri <- addPriceInfo(AAPL, CSPEngulfing(AAPL))
+```
+
+### CSPNBlended
+
+```{r Blended}
+CSP <- CSPNBlended(AAPL, N=3)  # combine 3 candles into one
+```
+
+### OHLC_Average/HLC_Average/HC_Average
+
+计算开盘-最高-最低-收盘价（OHLC）或最高-最低-收盘价（HLC）的平均值，辅助确定价格中枢或支撑阻力位68。
+
+```{r average}
+res <- cbind(OHLC_Average(AAPL), 
+      HLC_Average(AAPL), 
+      HL_Average(AAPL))
+
+head(res)
+```
+
+### CandleBodyLength/CandleLength
+
+量化蜡烛实体或整体长度，用于形态筛选（如区分十字星或长实体）。
+
+```{r bodylength}
+Len <- CandleLength(AAPL)
+Bo_Len <- CandleBodyLength(AAPL)
+```
+
+
+# 投资信号生成策略示例
+
+## 反转信号组合
+
+倒锤子线+成交量放大：若CSPInvertedHammer检测到形态且成交量增加，可视为买入信号。
+
+吞没形态+趋势线突破：CSPEngulfing结合价格突破下降趋势线，确认反转做多。
+
+## 趋势延续策略
+
+三白兵+均线多头排列：CSPThreeWhiteSoldiers与TrendDetectionSMA显示均线向上发散时，加仓持有。
+风控辅助
+
+长阴线+超买指标：CSPNLongBlackCandles连续出现且RSI>80时，提示减仓。
+
+```{r}
+# 看涨吞没 + 放量 + 突破20日均线
+engulfing <- CSPEngulfing(AAPL)[,"Bull.Engulfing"]
+volume_cond <- Vo(AAPL) > SMA(Vo(AAPL), 10)
+ma_break <- Cl(AAPL) > SMA(Cl(AAPL), 20)
+buy_signal <- engulfing & volume_cond & ma_break
+print(buy_signal)
+```
