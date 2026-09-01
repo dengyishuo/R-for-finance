@@ -1,5 +1,5 @@
 ---
-title: "R中的量化投资包之candlesticks包简介"
+title: "AI辅助下的蜡烛图技术分析实战手册"
 author:
   - MatrixSpk
 documentclass: ctexart
@@ -29,7 +29,6 @@ knitr::opts_chunk$set(
 ```{r include=FALSE,eval=TRUE}
 library(quantmod)
 library(candlesticks)
-AAPL <- readRDS("AAPL.rds")
 ```
 
 # 引言

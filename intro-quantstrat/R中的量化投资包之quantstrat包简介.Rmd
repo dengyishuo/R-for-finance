@@ -1,11 +1,12 @@
 ---
-title: "R中的量化投资包之quantstrat包简介"
+title: "R语言量化投资笔记之quantstrat包：策略开发与回测利器"
 author:
-  - MatrixSpk
+  - DengYishuo
 documentclass: ctexart
 keywords:
-  - 中文
-  - R Markdown
+  - quantstrat
+  - R 
+  - 量化投资
 output:
   rticles::ctex:
     fig_caption: yes
@@ -19,11 +20,11 @@ quantstart包是 R 中专注于构建量化投资框架的 R 包，它提供了�
 
 # quantstrat包简介
 
-## quantstrat包的安装
-
-## quantstrat包主要函数介绍
+## quantstrat 包的安装
 
 # quantstrat回测策略的步骤
+
+
 
 # quantstrat包实例
 
